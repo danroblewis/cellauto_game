@@ -60,12 +60,6 @@ class Game {
     }
 
     initUI() {
-        // Close instructions
-        const closeInstructions = document.getElementById('close-instructions');
-        closeInstructions.addEventListener('click', () => {
-            document.getElementById('instructions').classList.add('hidden');
-        });
-
         // Tool selection
         const toolSlots = document.querySelectorAll('.tool-slot');
         toolSlots.forEach((slot, index) => {
