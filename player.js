@@ -301,6 +301,15 @@ class Player {
     }
 
     mineCellDirect(x, y, cell) {
+        // Mine support overlay first if present
+        if (cell.hasSupport) {
+            const count = this.inventory.get(CellType.SUPPORT) || 0;
+            this.inventory.set(CellType.SUPPORT, count + 1);
+            cell.hasSupport = false;
+            this.world.stabilityDirty = true;
+            return true;
+        }
+        
         if (!cell.isSolid()) return false;
         
         // Shovel is faster for dirt/sand
@@ -346,6 +355,20 @@ class Player {
         if (!this.canReach(x, y)) return false;
         
         const cell = this.world.getCell(x, y);
+        
+        // Support blocks are placed as overlay
+        if (this.selectedMaterial === CellType.SUPPORT) {
+            const count = this.inventory.get(CellType.SUPPORT) || 0;
+            if (count > 0 && !cell.hasSupport) {
+                this.inventory.set(CellType.SUPPORT, count - 1);
+                cell.hasSupport = true;
+                this.world.stabilityDirty = true;
+                return true;
+            }
+            return false;
+        }
+        
+        // Regular block placement requires empty space
         if (cell.type !== CellType.AIR) return false;
 
         const count = this.inventory.get(this.selectedMaterial) || 0;
@@ -360,6 +383,8 @@ class Player {
     placeArea(centerX, centerY, shape = 'square', radius = null) {
         if (radius === null) radius = this.mediumAreaRadius;
         let placed = false;
+        
+        const isSupport = this.selectedMaterial === CellType.SUPPORT;
 
         if (shape === 'square') {
             // Place in a square area
@@ -369,7 +394,17 @@ class Player {
                     if (!this.canReach(x, y)) continue;
                     
                     const cell = this.world.getCell(x, y);
-                    if (cell && cell.type === CellType.AIR) {
+                    if (!cell) continue;
+                    
+                    if (isSupport) {
+                        // Place support as overlay
+                        const count = this.inventory.get(CellType.SUPPORT) || 0;
+                        if (count > 0 && !cell.hasSupport) {
+                            this.inventory.set(CellType.SUPPORT, count - 1);
+                            cell.hasSupport = true;
+                            placed = true;
+                        }
+                    } else if (cell.type === CellType.AIR) {
                         const count = this.inventory.get(this.selectedMaterial) || 0;
                         if (count > 0) {
                             this.inventory.set(this.selectedMaterial, count - 1);
@@ -392,7 +427,17 @@ class Player {
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     if (distance <= radius + 0.5) {
                         const cell = this.world.getCell(x, y);
-                        if (cell && cell.type === CellType.AIR) {
+                        if (!cell) continue;
+                        
+                        if (isSupport) {
+                            // Place support as overlay
+                            const count = this.inventory.get(CellType.SUPPORT) || 0;
+                            if (count > 0 && !cell.hasSupport) {
+                                this.inventory.set(CellType.SUPPORT, count - 1);
+                                cell.hasSupport = true;
+                                placed = true;
+                            }
+                        } else if (cell.type === CellType.AIR) {
                             const count = this.inventory.get(this.selectedMaterial) || 0;
                             if (count > 0) {
                                 this.inventory.set(this.selectedMaterial, count - 1);
@@ -403,6 +448,10 @@ class Player {
                     }
                 }
             }
+        }
+        
+        if (placed && isSupport) {
+            this.world.stabilityDirty = true;
         }
 
         return placed;

@@ -34,13 +34,15 @@ class Cell {
         this.age = 0;
         this.updateCount = 0;
         this.stable = false; // Structural stability (for stone)
+        this.hasSupport = false; // Support block overlay
+        this.supportStable = false; // Stability for support blocks
     }
 
     isStoneLike() {
         // Materials that need structural stability checking
         return this.type === CellType.STONE || this.type === CellType.IRON_ORE || 
                this.type === CellType.CRYSTAL || this.type === CellType.GLASS ||
-               this.type === CellType.PUMP || this.type === CellType.SUPPORT;
+               this.type === CellType.PUMP;
     }
 
     isSolid() {
@@ -51,8 +53,9 @@ class Cell {
     }
     
     providesStability() {
-        // Blocks that provide structural stability support (even if not solid)
-        return this.isSolid() || this.type === CellType.SUPPORT;
+        // Blocks that provide structural stability support
+        // Support is now a property, not a type
+        return this.isSolid() || this.hasSupport;
     }
 
     isLiquid() {
@@ -222,9 +225,22 @@ class CellularAutomata {
             x2 < 0 || x2 >= this.width || y2 < 0 || y2 >= this.height) {
             return false;
         }
+        
+        const cell1 = this.grid[y1][x1];
+        const cell2 = this.grid[y2][x2];
+        
+        // Preserve hasSupport flags at their original locations
+        const support1 = cell1.hasSupport;
+        const support2 = cell2.hasSupport;
+        
+        // Swap the cells
         const temp = this.grid[y1][x1];
         this.grid[y1][x1] = this.grid[y2][x2];
         this.grid[y2][x2] = temp;
+        
+        // Restore support flags to their original locations
+        this.grid[y1][x1].hasSupport = support1;
+        this.grid[y2][x2].hasSupport = support2;
         
         // Update positions
         this.grid[y1][x1].x = x1;
@@ -236,8 +252,9 @@ class CellularAutomata {
         this.markActive(x1, y1);
         this.markActive(x2, y2);
         
-        // If stone-like materials moved, mark stability as dirty
-        if (this.grid[y1][x1].isStoneLike() || this.grid[y2][x2].isStoneLike()) {
+        // If stone-like materials moved or support flags exist, mark stability as dirty
+        if (this.grid[y1][x1].isStoneLike() || this.grid[y2][x2].isStoneLike() || 
+            support1 || support2) {
             this.stabilityDirty = true;
         }
         
@@ -323,6 +340,24 @@ class CellularAutomata {
                 }
             }
         }
+        
+        // Process support block gravity (support flags can fall when not stable)
+        for (let y = endY - 1; y >= startY; y--) {
+            for (let x = startX; x < endX; x++) {
+                const cell = this.grid[y][x];
+                if (cell.hasSupport && !cell.supportStable) {
+                    const below = this.getCell(x, y + 1);
+                    // Support falls if not stable and cell below exists, doesn't have support, and isn't solid
+                    if (below && !below.hasSupport && !below.isSolid()) {
+                        cell.hasSupport = false;
+                        below.hasSupport = true;
+                        this.markActive(x, y);
+                        this.markActive(x, y + 1);
+                        this.stabilityDirty = true;
+                    }
+                }
+            }
+        }
 
         // Clear some active cells (keep recently active ones)
         if (this.activeCells.size > 1000) {
@@ -340,12 +375,15 @@ class CellularAutomata {
     }
 
     updateStability() {
-        // Reset all stone-like stability
+        // Reset all stone-like stability and support stability
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 const cell = this.grid[y][x];
                 if (cell.isStoneLike()) {
                     cell.stable = false;
+                }
+                if (cell.hasSupport) {
+                    cell.supportStable = false;
                 }
             }
         }
@@ -361,19 +399,40 @@ class CellularAutomata {
                     cell.stable = true;
                 } else {
                     const below = this.grid[y + 1][x];
-                    // Stable if standing on solid non-stone material (dirt, etc.), stable stone, or support block
+                    // Stable if standing on solid non-stone material (dirt, etc.), stable stone, or stable support
                     if (below.isSolid() && !below.isStoneLike()) {
                         cell.stable = true;
                     } else if (below.isStoneLike() && below.stable) {
                         cell.stable = true;
-                    } else if (below.type === CellType.SUPPORT) {
+                    } else if (below.hasSupport && below.supportStable) {
+                        // Stable support provides stability
                         cell.stable = true;
                     }
                 }
             }
         }
+        
+        // Pass 1b: Mark support blocks directly on ground or solid surfaces
+        for (let y = this.height - 1; y >= 0; y--) {
+            for (let x = 0; x < this.width; x++) {
+                const cell = this.grid[y][x];
+                if (!cell.hasSupport) continue;
 
-        // Pass 2+: Propagate stability through connected stones (4-directional)
+                // Support is stable if on ground or on solid block or on stable support
+                if (y === this.height - 1) {
+                    cell.supportStable = true;
+                } else {
+                    const below = this.grid[y + 1][x];
+                    if (below.isSolid()) {
+                        cell.supportStable = true;
+                    } else if (below.hasSupport && below.supportStable) {
+                        cell.supportStable = true;
+                    }
+                }
+            }
+        }
+
+        // Pass 2+: Propagate stability through connected stones and supports (4-directional)
         // Run multiple passes to handle long chains
         let changed = true;
         let iterations = 0;
@@ -386,26 +445,49 @@ class CellularAutomata {
             for (let y = 0; y < this.height; y++) {
                 for (let x = 0; x < this.width; x++) {
                     const cell = this.grid[y][x];
-                    if (!cell.isStoneLike() || cell.stable) continue;
+                    
+                    // Propagate stone stability
+                    if (cell.isStoneLike() && !cell.stable) {
+                        // Check if any neighbor stone or support is stable
+                        const neighbors = [
+                            { x: x - 1, y: y }, { x: x + 1, y: y },
+                            { x: x, y: y - 1 }, { x: x, y: y + 1 }
+                        ];
 
-                    // Check if any neighbor stone is stable
-                    const neighbors = [
-                        { x: x - 1, y: y }, { x: x + 1, y: y },
-                        { x: x, y: y - 1 }, { x: x, y: y + 1 }
-                    ];
+                        for (const n of neighbors) {
+                            if (n.x >= 0 && n.x < this.width && n.y >= 0 && n.y < this.height) {
+                                const neighbor = this.grid[n.y][n.x];
+                                if (neighbor.isStoneLike() && neighbor.stable) {
+                                    cell.stable = true;
+                                    changed = true;
+                                    break;
+                                } else if (neighbor.hasSupport && neighbor.supportStable) {
+                                    // Stable support provides stability to adjacent stones
+                                    cell.stable = true;
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Propagate support stability
+                    if (cell.hasSupport && !cell.supportStable) {
+                        const neighbors = [
+                            { x: x - 1, y: y }, { x: x + 1, y: y },
+                            { x: x, y: y - 1 }, { x: x, y: y + 1 }
+                        ];
 
-                    for (const n of neighbors) {
-                        if (n.x >= 0 && n.x < this.width && n.y >= 0 && n.y < this.height) {
-                            const neighbor = this.grid[n.y][n.x];
-                            if (neighbor.isStoneLike() && neighbor.stable) {
-                                cell.stable = true;
-                                changed = true;
-                                break;
-                            } else if (neighbor.type === CellType.SUPPORT) {
-                                // Support blocks provide stability to adjacent stones
-                                cell.stable = true;
-                                changed = true;
-                                break;
+                        for (const n of neighbors) {
+                            if (n.x >= 0 && n.x < this.width && n.y >= 0 && n.y < this.height) {
+                                const neighbor = this.grid[n.y][n.x];
+                                // Support gets stability from stable stones or stable supports
+                                if ((neighbor.isStoneLike() && neighbor.stable) || 
+                                    (neighbor.hasSupport && neighbor.supportStable)) {
+                                    cell.supportStable = true;
+                                    changed = true;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -432,11 +514,7 @@ class CellularAutomata {
         }
 
         // Can fall through air or lighter materials
-        // Stone-like materials (including support blocks) cannot fall through support blocks
-        const canFallThroughSupport = !cell.isStoneLike();
-        
         if (below.type === CellType.AIR ||
-            (below.type === CellType.SUPPORT && canFallThroughSupport) ||
             (below.isLiquid() && cell.getDensity() > below.getDensity()) ||
             (below.isGas() && cell.getDensity() > below.getDensity())) {
             if (this.swap(x, y, x, y + 1)) {
@@ -451,18 +529,16 @@ class CellularAutomata {
         }
 
         // Check diagonals for solids (only check one diagonal per frame to reduce work)
-        if (cell.isSolid() || cell.type === CellType.SUPPORT) {
+        if (cell.isSolid()) {
             // Use cell position as seed for deterministic randomness
             const seed = (x + y * this.width) % 4;
             if (seed < 2) { // Only check 50% of the time
                 const dir = seed === 0 ? { x: -1, y: 1 } : { x: 1, y: 1 };
                 const diag = this.getCell(x + dir.x, y + dir.y);
                 const belowDiag = this.getCell(x + dir.x, y + dir.y + 1);
-                // Stone-like materials cannot fall diagonally through support blocks
-                const canFallDiagonallyThroughSupport = !cell.isStoneLike();
                 if (diag && belowDiag && 
-                    (diag.type === CellType.AIR || (diag.type === CellType.SUPPORT && canFallDiagonallyThroughSupport) || diag.isLiquid()) &&
-                    (belowDiag.type === CellType.AIR || (belowDiag.type === CellType.SUPPORT && canFallDiagonallyThroughSupport) || belowDiag.isLiquid())) {
+                    (diag.type === CellType.AIR || diag.isLiquid()) &&
+                    (belowDiag.type === CellType.AIR || belowDiag.isLiquid())) {
                     if (this.swap(x, y, x + dir.x, y + dir.y)) {
                         this.markActive(x + dir.x, y + dir.y);
                         return true;
@@ -485,7 +561,7 @@ class CellularAutomata {
         // If there's upward pump force, try to move up with higher priority
         if (pumpForce > 0) {
             const above = this.getCell(x, y - 1);
-            if (above && (above.type === CellType.AIR || above.type === CellType.SUPPORT)) {
+            if (above && above.type === CellType.AIR) {
                 // Stronger pump force = higher probability of moving up
                 // With 2 pump blocks nearby (one on each side), should be very likely to rise
                 const moveUpProbability = Math.min(0.95, 0.3 + pumpForce * 0.25);
@@ -507,8 +583,8 @@ class CellularAutomata {
             const target = this.getCell(x + dir.x, y + dir.y);
             if (!target) continue;
 
-            // Flow to empty space, support blocks, or lighter fluids
-            if (target.type === CellType.AIR || target.type === CellType.SUPPORT ||
+            // Flow to empty space or lighter fluids
+            if (target.type === CellType.AIR ||
                 (target.isLiquid() && cell.getDensity() > target.getDensity())) {
                 if (Math.random() > 0.5) {
                     this.swap(x, y, x + dir.x, y + dir.y);
@@ -765,17 +841,19 @@ class CellularAutomata {
             cells: []
         };
 
-        // Only save non-air cells to reduce data size
+        // Only save non-air cells or cells with support to reduce data size
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 const cell = this.grid[y][x];
-                if (cell.type !== CellType.AIR || cell.temperature !== 20 || cell.stable !== false) {
+                if (cell.type !== CellType.AIR || cell.temperature !== 20 || cell.stable !== false || cell.hasSupport) {
                     data.cells.push({
                         x: x,
                         y: y,
                         type: cell.type,
                         temperature: Math.round(cell.temperature * 10) / 10, // Round to 1 decimal
-                        stable: cell.stable
+                        stable: cell.stable,
+                        hasSupport: cell.hasSupport,
+                        supportStable: cell.supportStable
                     });
                 }
             }
@@ -804,6 +882,8 @@ class CellularAutomata {
                     cell.velocity = { x: 0, y: 0 };
                     cell.age = 0;
                     cell.stable = false;
+                    cell.hasSupport = false;
+                    cell.supportStable = false;
                 }
             }
 
@@ -815,6 +895,8 @@ class CellularAutomata {
                     cell.type = cellData.type;
                     cell.temperature = cellData.temperature || 20;
                     cell.stable = cellData.stable || false;
+                    cell.hasSupport = cellData.hasSupport || false;
+                    cell.supportStable = cellData.supportStable || false;
                     
                     // Mark as active to trigger physics updates
                     this.markActive(cellData.x, cellData.y);

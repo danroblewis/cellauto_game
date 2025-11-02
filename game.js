@@ -538,6 +538,22 @@ class Game {
             }
         }
 
+        // Draw support block overlays (yellow borders)
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+                const cell = this.world.getCell(x, y);
+                if (cell && cell.hasSupport) {
+                    const screenX = (x - this.camera.x) * cellSize;
+                    const screenY = (y - this.camera.y) * cellSize;
+                    
+                    // Draw yellow-brown border
+                    this.ctx.strokeStyle = '#D4AF37'; // Gold/yellow-brown color
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(screenX, screenY, cellSize, cellSize);
+                }
+            }
+        }
+
         this.drawOverlays();
         
         // Draw player
@@ -545,6 +561,29 @@ class Game {
     }
 
     drawOverlays() {
+        // Draw support block overlays (yellow borders) when using WebGL
+        if (this.useWebGL) {
+            const startX = Math.max(0, Math.floor(this.camera.x));
+            const endX = Math.min(this.world.width, Math.ceil(this.camera.x + this.canvas.width / this.camera.cellSize));
+            const startY = Math.max(0, Math.floor(this.camera.y));
+            const endY = Math.min(this.world.height, Math.ceil(this.camera.y + this.canvas.height / this.camera.cellSize));
+            
+            for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                    const cell = this.world.getCell(x, y);
+                    if (cell && cell.hasSupport) {
+                        const screenX = (x - this.camera.x) * this.camera.cellSize;
+                        const screenY = (y - this.camera.y) * this.camera.cellSize;
+                        
+                        // Draw yellow-brown border
+                        this.ctx.strokeStyle = '#D4AF37'; // Gold/yellow-brown color
+                        this.ctx.lineWidth = 2;
+                        this.ctx.strokeRect(screenX, screenY, this.camera.cellSize, this.camera.cellSize);
+                    }
+                }
+            }
+        }
+        
         // Draw reach indicator
         const reachCells = this.player.getReachCells();
         reachCells.forEach(({ x, y }) => {
