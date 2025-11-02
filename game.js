@@ -58,6 +58,8 @@ class Game {
         
         // Input handling
         this.keys = {};
+        this.keys['control'] = false;
+        this.keys['alt'] = false;
         this.mouse = { x: 0, y: 0, down: false, button: null };
         this.lastMinedPos = null; // Track last mined position for continuous mining
         this.miningCooldown = 0; // Cooldown between mining actions
@@ -123,9 +125,12 @@ class Game {
             if (e.ctrlKey || e.metaKey) {
                 this.keys['control'] = true;
             }
+            if (e.altKey) {
+                this.keys['alt'] = true;
+            }
             
-            // Toggle area mining shape with C (when not holding Ctrl)
-            if (!e.ctrlKey && !e.metaKey && (e.key === 'C' || e.key === 'c')) {
+            // Toggle area mining shape with C (when not holding modifiers)
+            if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'C' || e.key === 'c')) {
                 this.areaMiningShape = this.areaMiningShape === 'square' ? 'circle' : 'square';
             }
             
@@ -151,9 +156,22 @@ class Game {
 
         window.addEventListener('keyup', (e) => {
             this.keys[e.key.toLowerCase()] = false;
+            // Only clear modifier keys if they're explicitly released
+            // We check the event modifiers directly
             if (!e.ctrlKey && !e.metaKey) {
                 this.keys['control'] = false;
             }
+            if (!e.altKey) {
+                this.keys['alt'] = false;
+            }
+        });
+        
+        // Also track modifier keys globally via window focus/blur and periodic checks
+        // This ensures we catch modifier keys even if keyup events are missed
+        window.addEventListener('blur', () => {
+            // Clear modifier keys when window loses focus
+            this.keys['control'] = false;
+            this.keys['alt'] = false;
         });
 
         // Mouse
@@ -161,6 +179,16 @@ class Game {
             const rect = this.canvas.getBoundingClientRect();
             this.mouse.x = e.clientX - rect.left;
             this.mouse.y = e.clientY - rect.top;
+            // Also update modifier keys from mouse event (in case they weren't tracked via keyboard events)
+            if (e.ctrlKey || e.metaKey) {
+                this.keys['control'] = true;
+            } else {
+                // Only clear if we're sure it's not pressed (check both sources)
+                // We don't clear here to avoid race conditions
+            }
+            if (e.altKey) {
+                this.keys['alt'] = true;
+            }
         });
 
         this.canvas.addEventListener('mousedown', (e) => {
@@ -271,13 +299,23 @@ class Game {
         const playerCenterX = this.player.x + this.player.width / 2;
         this.player.facingDirection = worldX > playerCenterX ? 1 : -1;
         
-        // Check if Ctrl is held for area mining
-        const isAreaMining = this.keys['control'] && 
-                             (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel');
+        // Check modifier keys for area operations - check both stored keys and event modifiers
+        const hasControl = this.keys['control'] || e.ctrlKey || e.metaKey;
+        const hasAlt = this.keys['alt'] || e.altKey;
+        const supportsAreaMode = this.player.currentTool === 'pickaxe' || 
+                                this.player.currentTool === 'shovel' || 
+                                this.player.currentTool === 'place';
+        
+        let areaMode = false;
+        if (hasControl && supportsAreaMode) {
+            areaMode = 'large'; // Large area (Ctrl)
+        } else if (hasAlt && supportsAreaMode) {
+            areaMode = 'medium'; // Medium area (Alt)
+        }
         
         // Use tool immediately
-        const success = this.player.useTool(worldX, worldY, isAreaMining, this.areaMiningShape);
-        if (success && (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel')) {
+        const success = this.player.useTool(worldX, worldY, areaMode);
+        if (success && (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel' || this.player.currentTool === 'place')) {
             this.lastMinedPos = { x: worldX, y: worldY };
         } else {
             this.lastMinedPos = null;
@@ -331,18 +369,28 @@ class Game {
                 const worldX = Math.floor(this.mouse.x / this.camera.cellSize + this.camera.x);
                 const worldY = Math.floor(this.mouse.y / this.camera.cellSize + this.camera.y);
                 
-                // Check if Ctrl is held for area mining
-                const isAreaMining = this.keys['control'] && 
-                                     (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel');
+                // Check modifier keys for area operations
+                const supportsAreaMode = this.player.currentTool === 'pickaxe' || 
+                                        this.player.currentTool === 'shovel' || 
+                                        this.player.currentTool === 'place';
+                const hasControl = this.keys['control'];
+                const hasAlt = this.keys['alt'];
                 
-                if (isAreaMining) {
-                    // Area mining - mine larger area
-                    this.handleContinuousAction(worldX, worldY, true);
-                    // Longer cooldown for area mining since it mines many blocks
-                    this.miningCooldown = 10;
+                let areaMode = false;
+                if (hasControl && supportsAreaMode) {
+                    areaMode = 'large'; // Large area (Ctrl)
+                } else if (hasAlt && supportsAreaMode) {
+                    areaMode = 'medium'; // Medium area (Alt)
+                }
+                
+                if (areaMode) {
+                    // Area operation
+                    this.handleContinuousAction(worldX, worldY, areaMode);
+                    // Longer cooldown for area operations since they affect many blocks
+                    this.miningCooldown = areaMode === 'large' ? 10 : 7;
                 } else {
-                    // Normal single-block mining
-                    // Only continue mining if cursor is still over the same cell or adjacent cell
+                    // Normal single-block operation
+                    // Only continue if cursor is still over the same cell or adjacent cell
                     if (this.lastMinedPos) {
                         const dx = Math.abs(worldX - this.lastMinedPos.x);
                         const dy = Math.abs(worldY - this.lastMinedPos.y);
@@ -386,13 +434,13 @@ class Game {
         this.frameCount++;
     }
 
-    handleContinuousAction(worldX, worldY, areaMining = false) {
+    handleContinuousAction(worldX, worldY, areaMode = false) {
         // Update player facing direction
         const playerCenterX = this.player.x + this.player.width / 2;
         this.player.facingDirection = worldX > playerCenterX ? 1 : -1;
         
         // Try to use tool
-        const success = this.player.useTool(worldX, worldY, areaMining, this.areaMiningShape);
+        const success = this.player.useTool(worldX, worldY, areaMode);
         if (success) {
             this.lastMinedPos = { x: worldX, y: worldY };
         }
@@ -478,37 +526,59 @@ class Game {
         const worldX = Math.floor(this.mouse.x / this.camera.cellSize + this.camera.x);
         const worldY = Math.floor(this.mouse.y / this.camera.cellSize + this.camera.y);
         
-        // Check if area mining is active
-        const isAreaMining = this.keys['control'] && 
-                            (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel');
+        // Check if area operations are active (mining or placing)
+        const supportsAreaMode = this.player.currentTool === 'pickaxe' || 
+                                this.player.currentTool === 'shovel' || 
+                                this.player.currentTool === 'place';
         
-        if (isAreaMining) {
-            // Draw area mining preview
+        // Check modifier keys - use stored state, and also verify with a more reliable check
+        // We can't directly access keyboard state here, but we should trust this.keys
+        // However, let's make sure we're checking correctly
+        const hasControl = !!this.keys['control'];
+        const hasAlt = !!this.keys['alt'];
+        const isLargeArea = hasControl && supportsAreaMode;
+        const isMediumArea = hasAlt && supportsAreaMode;
+        
+        if (isLargeArea) {
+            // Draw large area preview (Ctrl)
             const radius = this.player.areaMiningRadius;
             const centerScreenX = (worldX - this.camera.x) * this.camera.cellSize;
             const centerScreenY = (worldY - this.camera.y) * this.camera.cellSize;
             
-            this.ctx.strokeStyle = 'rgba(255, 200, 0, 0.8)';
-            this.ctx.lineWidth = 2;
+            this.ctx.strokeStyle = 'rgba(255, 200, 0, 1.0)'; // Brighter, fully opaque
+            this.ctx.lineWidth = 3; // Thicker line
+            this.ctx.setLineDash([]); // Solid line
             
-            if (this.areaMiningShape === 'square') {
-                const size = radius * 2 + 1;
-                const previewSize = size * this.camera.cellSize;
-                this.ctx.strokeRect(
-                    centerScreenX - (radius * this.camera.cellSize),
-                    centerScreenY - (radius * this.camera.cellSize),
-                    previewSize,
-                    previewSize
-                );
-            } else {
-                // Circle preview
-                this.ctx.beginPath();
-                this.ctx.arc(centerScreenX + this.camera.cellSize / 2, 
-                           centerScreenY + this.camera.cellSize / 2, 
-                           (radius + 0.5) * this.camera.cellSize, 0, Math.PI * 2);
-                this.ctx.stroke();
-            }
+            // Always use square for area operations
+            const size = radius * 2 + 1;
+            const previewSize = size * this.camera.cellSize;
+            this.ctx.strokeRect(
+                centerScreenX - (radius * this.camera.cellSize),
+                centerScreenY - (radius * this.camera.cellSize),
+                previewSize,
+                previewSize
+            );
+        } else if (isMediumArea) {
+            // Draw medium area preview (Alt)
+            const radius = this.player.mediumAreaRadius;
+            const centerScreenX = (worldX - this.camera.x) * this.camera.cellSize;
+            const centerScreenY = (worldY - this.camera.y) * this.camera.cellSize;
+            
+            this.ctx.strokeStyle = 'rgba(200, 150, 255, 1.0)'; // Brighter, fully opaque
+            this.ctx.lineWidth = 3; // Thicker line
+            this.ctx.setLineDash([]); // Solid line
+            
+            // Always use square for area operations
+            const size = radius * 2 + 1;
+            const previewSize = size * this.camera.cellSize;
+            this.ctx.strokeRect(
+                centerScreenX - (radius * this.camera.cellSize),
+                centerScreenY - (radius * this.camera.cellSize),
+                previewSize,
+                previewSize
+            );
         } else if (this.player.canReach(worldX, worldY)) {
+            // Single block preview
             const screenX = (worldX - this.camera.x) * this.camera.cellSize;
             const screenY = (worldY - this.camera.y) * this.camera.cellSize;
             

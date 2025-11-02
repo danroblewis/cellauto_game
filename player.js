@@ -24,7 +24,8 @@ class Player {
         // Interaction
         this.reachDistance = 8; // cells (increased from 4)
         this.currentTool = 'pickaxe';
-        this.areaMiningRadius = 3; // Radius for area mining (square/circle)
+        this.areaMiningRadius = 3; // Radius for large area (Ctrl key)
+        this.mediumAreaRadius = 1; // Radius for medium area (Alt key)
         
         // Inventory (start with 999 of each material)
         this.inventory = new Map();
@@ -202,7 +203,26 @@ class Player {
         return cells;
     }
 
-    useTool(worldX, worldY, areaMining = false, shape = 'square') {
+    useTool(worldX, worldY, areaMode = false, radius = 0) {
+        // areaMode: false = single, 'medium' = Alt key, 'large' = Ctrl key
+        // radius: custom radius if provided, otherwise uses default based on areaMode
+        
+        if (areaMode) {
+            let useRadius = radius > 0 ? radius : (areaMode === 'large' ? this.areaMiningRadius : this.mediumAreaRadius);
+            
+            switch (this.currentTool) {
+                case 'pickaxe':
+                case 'shovel':
+                    return this.mineArea(worldX, worldY, 'square', useRadius);
+                case 'place':
+                    return this.placeArea(worldX, worldY, 'square', useRadius);
+                default:
+                    // Other tools don't support area mode - fall through to single block mode
+                    return false;
+            }
+        }
+        
+        // Single block operations
         if (!this.canReach(worldX, worldY)) {
             return false;
         }
@@ -213,9 +233,6 @@ class Player {
         switch (this.currentTool) {
             case 'pickaxe':
             case 'shovel':
-                if (areaMining) {
-                    return this.mineArea(worldX, worldY, shape);
-                }
                 return this.mineCell(worldX, worldY, cell);
             case 'bucket':
                 return this.handleBucket(worldX, worldY, cell);
@@ -227,9 +244,9 @@ class Player {
         return false;
     }
 
-    mineArea(centerX, centerY, shape = 'square') {
+    mineArea(centerX, centerY, shape = 'square', radius = null) {
         let mined = false;
-        const radius = this.areaMiningRadius;
+        if (radius === null) radius = this.areaMiningRadius;
 
         if (shape === 'square') {
             // Mine a square area
@@ -338,6 +355,57 @@ class Player {
             return true;
         }
         return false;
+    }
+
+    placeArea(centerX, centerY, shape = 'square', radius = null) {
+        if (radius === null) radius = this.mediumAreaRadius;
+        let placed = false;
+
+        if (shape === 'square') {
+            // Place in a square area
+            for (let y = centerY - radius; y <= centerY + radius; y++) {
+                for (let x = centerX - radius; x <= centerX + radius; x++) {
+                    // Check if within reach
+                    if (!this.canReach(x, y)) continue;
+                    
+                    const cell = this.world.getCell(x, y);
+                    if (cell && cell.type === CellType.AIR) {
+                        const count = this.inventory.get(this.selectedMaterial) || 0;
+                        if (count > 0) {
+                            this.inventory.set(this.selectedMaterial, count - 1);
+                            this.world.setCell(x, y, this.selectedMaterial);
+                            placed = true;
+                        }
+                    }
+                }
+            }
+        } else if (shape === 'circle') {
+            // Place in a circular area
+            for (let y = centerY - radius; y <= centerY + radius; y++) {
+                for (let x = centerX - radius; x <= centerX + radius; x++) {
+                    // Check if within reach
+                    if (!this.canReach(x, y)) continue;
+                    
+                    // Check if within circle radius
+                    const dx = x - centerX;
+                    const dy = y - centerY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance <= radius + 0.5) {
+                        const cell = this.world.getCell(x, y);
+                        if (cell && cell.type === CellType.AIR) {
+                            const count = this.inventory.get(this.selectedMaterial) || 0;
+                            if (count > 0) {
+                                this.inventory.set(this.selectedMaterial, count - 1);
+                                this.world.setCell(x, y, this.selectedMaterial);
+                                placed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return placed;
     }
 
     placeTorch(x, y, cell) {
