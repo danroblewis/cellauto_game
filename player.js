@@ -26,11 +26,20 @@ class Player {
         this.currentTool = 'pickaxe';
         this.areaMiningRadius = 3; // Radius for area mining (square/circle)
         
-        // Inventory (start with some basic materials)
+        // Inventory (start with 999 of each material)
         this.inventory = new Map();
-        this.inventory.set(CellType.STONE, 10);
-        this.inventory.set(CellType.DIRT, 10);
-        this.inventory.set(CellType.WOOD, 5);
+        const allMaterials = [
+            CellType.STONE, CellType.DIRT, CellType.SAND, CellType.WOOD,
+            CellType.WATER, CellType.LAVA, CellType.OIL, CellType.STEAM,
+            CellType.SMOKE, CellType.COAL, CellType.IRON_ORE, CellType.ICE,
+            CellType.GLASS, CellType.ACID, CellType.CRYSTAL, CellType.GRASS,
+            CellType.FIRE, CellType.SEED
+        ];
+        
+        allMaterials.forEach(material => {
+            this.inventory.set(material, 999);
+        });
+        
         this.selectedMaterial = CellType.STONE;
         
         // Animation
