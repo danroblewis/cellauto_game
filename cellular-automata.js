@@ -110,6 +110,9 @@ class CellularAutomata {
         this.grid = [];
         this.nextGrid = [];
         this.updateQueue = [];
+        this.activeCells = new Set(); // Track cells that need updates
+        this.frameSkip = 0; // Skip frames for performance
+        this.updateRegion = null; // Only update visible region + buffer
         
         // Initialize grids
         for (let y = 0; y < height; y++) {
@@ -120,6 +123,28 @@ class CellularAutomata {
                 this.nextGrid[y][x] = new Cell(CellType.AIR, x, y);
             }
         }
+    }
+
+    markActive(x, y) {
+        // Mark cell and neighbors as active
+        for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+                    this.activeCells.add(`${nx},${ny}`);
+                }
+            }
+        }
+    }
+
+    setUpdateRegion(startX, startY, endX, endY, buffer = 10) {
+        this.updateRegion = {
+            startX: Math.max(0, startX - buffer),
+            startY: Math.max(0, startY - buffer),
+            endX: Math.min(this.width, endX + buffer),
+            endY: Math.min(this.height, endY + buffer)
+        };
     }
 
     getCell(x, y) {
@@ -134,10 +159,16 @@ class CellularAutomata {
             return false;
         }
         const cell = this.grid[y][x];
+        const wasAir = cell.type === CellType.AIR;
         cell.type = type;
         cell.temperature = 20;
         cell.velocity = { x: 0, y: 0 };
         cell.age = 0;
+        
+        // Mark as active if changed from/to air
+        if (wasAir !== (type === CellType.AIR)) {
+            this.markActive(x, y);
+        }
         return true;
     }
 
@@ -155,89 +186,134 @@ class CellularAutomata {
         this.grid[y1][x1].y = y1;
         this.grid[y2][x2].x = x2;
         this.grid[y2][x2].y = y2;
+        
+        // Mark both cells as active
+        this.markActive(x1, y1);
+        this.markActive(x2, y2);
         return true;
     }
 
     update() {
-        // Process physics from bottom to top, alternating left-right
-        const directions = [
-            { x: -1, y: 0 }, { x: 1, y: 0 },
-            { x: -1, y: 1 }, { x: 1, y: 1 },
-            { x: 0, y: 1 },
-            { x: -1, y: -1 }, { x: 1, y: -1 }
-        ];
+        // Skip frames for performance (process every 2-3 frames)
+        this.frameSkip++;
+        if (this.frameSkip < 2) return;
+        this.frameSkip = 0;
 
-        // Process cells in random order to avoid artifacts
-        const cellsToProcess = [];
-        for (let y = this.height - 1; y >= 0; y--) {
-            for (let x = 0; x < this.width; x++) {
-                if (Math.random() > 0.5) {
-                    cellsToProcess.push({ x, y });
-                } else {
-                    cellsToProcess.unshift({ x, y });
+        // Determine update region
+        let startX = 0, startY = 0, endX = this.width, endY = this.height;
+        if (this.updateRegion) {
+            startX = this.updateRegion.startX;
+            startY = this.updateRegion.startY;
+            endX = this.updateRegion.endX;
+            endY = this.updateRegion.endY;
+        }
+
+        // Process from bottom to top for gravity
+        // Use a deterministic pattern to avoid random array creation
+        const pattern = Math.floor(Date.now() / 100) % 2; // Alternates
+        
+        for (let y = endY - 1; y >= startY; y--) {
+            const rowStart = pattern === 0 ? startX : endX - 1;
+            const rowEnd = pattern === 0 ? endX : startX - 1;
+            const step = pattern === 0 ? 1 : -1;
+            
+            for (let x = rowStart; (pattern === 0 ? x < rowEnd : x >= rowEnd); x += step) {
+                const cell = this.grid[y][x];
+                
+                // Skip air cells (major performance boost)
+                if (cell.type === CellType.AIR) continue;
+                
+                // Only process active cells or visible region
+                const isActive = this.activeCells.has(`${x},${y}`);
+                if (!isActive && this.updateRegion && 
+                    (x < this.updateRegion.startX || x >= this.updateRegion.endX ||
+                     y < this.updateRegion.startY || y >= this.updateRegion.endY)) {
+                    continue;
+                }
+
+                let changed = false;
+
+                // Gravity for solids and liquids (highest priority, most common)
+                if (cell.isSolid() || cell.isLiquid()) {
+                    changed = this.applyGravity(cell, x, y) || changed;
+                }
+
+                // Only do expensive checks if cell didn't move
+                if (!changed) {
+                    // Fluid dynamics for liquids (less frequent)
+                    if (cell.isLiquid() && Math.random() > 0.3) {
+                        this.applyFluidDynamics(cell, x, y);
+                    }
+
+                    // Gas behavior (even less frequent)
+                    if (cell.isGas() && cell.type !== CellType.AIR && Math.random() > 0.5) {
+                        this.applyGasBehavior(cell, x, y);
+                    }
+
+                    // Chemical reactions (rare, check less frequently)
+                    if (Math.random() > 0.7) {
+                        this.applyReactions(cell, x, y);
+                    }
+
+                    // Heat transfer (can be expensive, reduce frequency)
+                    if (Math.random() > 0.5) {
+                        this.applyHeatTransfer(cell, x, y);
+                    }
+
+                    // Phase changes (infrequent)
+                    if (Math.random() > 0.8) {
+                        this.applyPhaseChanges(cell, x, y);
+                    }
+
+                    // Special behaviors (infrequent)
+                    if (Math.random() > 0.9) {
+                        this.applySpecialBehaviors(cell, x, y);
+                    }
                 }
             }
         }
 
-        for (const { x, y } of cellsToProcess) {
-            const cell = this.grid[y][x];
-            if (cell.type === CellType.AIR) continue;
-
-            // Gravity for solids and liquids
-            if (cell.isSolid() || cell.isLiquid()) {
-                this.applyGravity(cell, x, y);
-            }
-
-            // Fluid dynamics for liquids
-            if (cell.isLiquid()) {
-                this.applyFluidDynamics(cell, x, y);
-            }
-
-            // Gas behavior
-            if (cell.isGas() && cell.type !== CellType.AIR) {
-                this.applyGasBehavior(cell, x, y);
-            }
-
-            // Chemical reactions
-            this.applyReactions(cell, x, y);
-
-            // Heat transfer
-            this.applyHeatTransfer(cell, x, y);
-
-            // Phase changes
-            this.applyPhaseChanges(cell, x, y);
-
-            // Special behaviors
-            this.applySpecialBehaviors(cell, x, y);
+        // Clear some active cells (keep recently active ones)
+        if (this.activeCells.size > 1000) {
+            const toRemove = Array.from(this.activeCells).slice(0, 500);
+            toRemove.forEach(key => this.activeCells.delete(key));
         }
     }
 
     applyGravity(cell, x, y) {
         const below = this.getCell(x, y + 1);
-        if (!below) return;
+        if (!below) return false;
 
         // Can fall through air or lighter materials
         if (below.type === CellType.AIR || 
             (below.isLiquid() && cell.getDensity() > below.getDensity()) ||
             (below.isGas() && cell.getDensity() > below.getDensity())) {
-            this.swap(x, y, x, y + 1);
-            return;
+            if (this.swap(x, y, x, y + 1)) {
+                this.markActive(x, y + 1);
+                return true;
+            }
+            return false;
         }
 
-        // Check diagonals for solids
+        // Check diagonals for solids (only check one diagonal per frame to reduce work)
         if (cell.isSolid()) {
-            const dirs = [{ x: -1, y: 1 }, { x: 1, y: 1 }];
-            for (const dir of dirs) {
+            // Use cell position as seed for deterministic randomness
+            const seed = (x + y * this.width) % 4;
+            if (seed < 2) { // Only check 50% of the time
+                const dir = seed === 0 ? { x: -1, y: 1 } : { x: 1, y: 1 };
                 const diag = this.getCell(x + dir.x, y + dir.y);
                 const belowDiag = this.getCell(x + dir.x, y + dir.y + 1);
                 if (diag && belowDiag && 
                     (diag.type === CellType.AIR || diag.isLiquid()) &&
                     (belowDiag.type === CellType.AIR || belowDiag.isLiquid())) {
-                    this.swap(x, y, x + dir.x, y + dir.y);
-                    return;
+                    if (this.swap(x, y, x + dir.x, y + dir.y)) {
+                        this.markActive(x + dir.x, y + dir.y);
+                        return true;
+                    }
                 }
             }
         }
+        return false;
     }
 
     applyFluidDynamics(cell, x, y) {
@@ -468,6 +544,15 @@ class CellularAutomata {
                         this.setCell(x, y + j, CellType.WATER);
                     }
                 }
+            }
+        }
+        
+        // Mark entire visible/important region as active initially
+        // This ensures physics works correctly at game start
+        const visibleHeight = Math.floor(this.height * 0.5);
+        for (let y = 0; y < visibleHeight; y++) {
+            for (let x = 0; x < this.width; x++) {
+                this.markActive(x, y);
             }
         }
     }

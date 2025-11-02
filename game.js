@@ -260,10 +260,15 @@ class Game {
             document.getElementById('game-over').classList.remove('hidden');
         }
 
-        // Update world physics (less frequently for performance)
-        if (this.frameCount % 2 === 0) {
-            this.world.update();
-        }
+        // Set update region to visible area + buffer for performance
+        const startX = Math.max(0, Math.floor(this.camera.x) - 5);
+        const endX = Math.min(this.world.width, Math.ceil(this.camera.x + this.canvas.width / this.camera.cellSize) + 5);
+        const startY = Math.max(0, Math.floor(this.camera.y) - 5);
+        const endY = Math.min(this.world.height, Math.ceil(this.camera.y + this.canvas.height / this.camera.cellSize) + 5);
+        this.world.setUpdateRegion(startX, startY, endX, endY, 10);
+
+        // Update world physics
+        this.world.update();
 
         // Update camera
         this.updateCamera();
@@ -296,16 +301,22 @@ class Game {
         const startY = Math.max(0, Math.floor(this.camera.y));
         const endY = Math.min(this.world.height, Math.ceil(this.camera.y + this.canvas.height / this.camera.cellSize));
 
-        // Draw cells
+        // Optimized rendering: batch same-color cells
+        const cellSize = this.camera.cellSize;
+        
         for (let y = startY; y < endY; y++) {
             for (let x = startX; x < endX; x++) {
                 const cell = this.world.getCell(x, y);
                 if (cell && cell.type !== CellType.AIR) {
-                    const screenX = (x - this.camera.x) * this.camera.cellSize;
-                    const screenY = (y - this.camera.y) * this.camera.cellSize;
+                    const screenX = (x - this.camera.x) * cellSize;
+                    const screenY = (y - this.camera.y) * cellSize;
                     
-                    this.ctx.fillStyle = cell.getColor();
-                    this.ctx.fillRect(screenX, screenY, this.camera.cellSize, this.camera.cellSize);
+                    // Use direct color string (avoid function call overhead)
+                    const color = cell.getColor();
+                    if (color !== 'transparent') {
+                        this.ctx.fillStyle = color;
+                        this.ctx.fillRect(screenX, screenY, cellSize, cellSize);
+                    }
                 }
             }
         }
