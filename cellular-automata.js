@@ -540,7 +540,8 @@ class CellularAutomata {
         }
 
         // Check diagonals for solids (only check one diagonal per frame to reduce work)
-        if (cell.isSolid()) {
+        // But not for stone-like materials (stone, pump, etc.) - they only fall straight down
+        if (cell.isSolid() && !cell.isStoneLike()) {
             // Use cell position as seed for deterministic randomness
             const seed = (x + y * this.width) % 4;
             if (seed < 2) { // Only check 50% of the time
