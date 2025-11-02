@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terraform - Cellular Automata Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        
+        <!-- HUD -->
+        <div id="hud">
+            <div id="health-bar-container">
+                <div id="health-bar">
+                    <div id="health-fill"></div>
+                    <span id="health-text">100 HP</span>
+                </div>
+            </div>
+            
+            <div id="tool-hotbar">
+                <div class="tool-slot active" data-tool="pickaxe">
+                    <div class="tool-icon">⛏</div>
+                    <div class="tool-number">1</div>
+                </div>
+                <div class="tool-slot" data-tool="shovel">
+                    <div class="tool-icon">🪣</div>
+                    <div class="tool-number">2</div>
+                </div>
+                <div class="tool-slot" data-tool="bucket">
+                    <div class="tool-icon">🪣</div>
+                    <div class="tool-number">3</div>
+                </div>
+                <div class="tool-slot" data-tool="place">
+                    <div class="tool-icon">📦</div>
+                    <div class="tool-number">4</div>
+                </div>
+                <div class="tool-slot" data-tool="torch">
+                    <div class="tool-icon">🔥</div>
+                    <div class="tool-number">5</div>
+                </div>
+            </div>
+            
+            <div id="material-indicator">
+                <span id="selected-material">Stone</span>
+            </div>
+            
+            <div id="reach-indicator"></div>
+        </div>
+        
+        <!-- Inventory Panel -->
+        <div id="inventory-panel" class="hidden">
+            <div id="inventory-header">
+                <h2>Inventory</h2>
+                <button id="close-inventory">×</button>
+            </div>
+            <div id="inventory-grid"></div>
+        </div>
+        
+        <!-- Instructions -->
+        <div id="instructions">
+            <h3>Controls</h3>
+            <p><strong>A/D</strong> or <strong>←/→</strong> - Move</p>
+            <p><strong>W</strong> or <strong>Space</strong> - Jump</p>
+            <p><strong>1-5</strong> - Select Tool</p>
+            <p><strong>Click</strong> - Use Tool (within reach)</p>
+            <p><strong>Tab</strong> - Toggle Inventory</p>
+            <p><strong>ESC</strong> - Close Menus</p>
+            <button id="close-instructions">Got it!</button>
+        </div>
+        
+        <!-- Game Over Screen -->
+        <div id="game-over" class="hidden">
+            <h2>Game Over</h2>
+            <p>You have died!</p>
+            <button id="respawn-btn">Respawn</button>
+        </div>
+    </div>
+    
+    <script src="cellular-automata.js"></script>
+    <script src="player.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
+
