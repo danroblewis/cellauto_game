@@ -22,11 +22,15 @@ class Player {
         this.invincibilityDuration = 30;
         
         // Interaction
-        this.reachDistance = 4; // cells
+        this.reachDistance = 8; // cells (increased from 4)
         this.currentTool = 'pickaxe';
+        this.areaMiningRadius = 3; // Radius for area mining (square/circle)
         
-        // Inventory
+        // Inventory (start with some basic materials)
         this.inventory = new Map();
+        this.inventory.set(CellType.STONE, 10);
+        this.inventory.set(CellType.DIRT, 10);
+        this.inventory.set(CellType.WOOD, 5);
         this.selectedMaterial = CellType.STONE;
         
         // Animation
@@ -189,7 +193,7 @@ class Player {
         return cells;
     }
 
-    useTool(worldX, worldY) {
+    useTool(worldX, worldY, areaMining = false, shape = 'square') {
         if (!this.canReach(worldX, worldY)) {
             return false;
         }
@@ -200,6 +204,9 @@ class Player {
         switch (this.currentTool) {
             case 'pickaxe':
             case 'shovel':
+                if (areaMining) {
+                    return this.mineArea(worldX, worldY, shape);
+                }
                 return this.mineCell(worldX, worldY, cell);
             case 'bucket':
                 return this.handleBucket(worldX, worldY, cell);
@@ -211,7 +218,63 @@ class Player {
         return false;
     }
 
+    mineArea(centerX, centerY, shape = 'square') {
+        let mined = false;
+        const radius = this.areaMiningRadius;
+
+        if (shape === 'square') {
+            // Mine a square area
+            for (let y = centerY - radius; y <= centerY + radius; y++) {
+                for (let x = centerX - radius; x <= centerX + radius; x++) {
+                    // Check if within reach
+                    if (!this.canReach(x, y)) continue;
+                    
+                    const cell = this.world.getCell(x, y);
+                    if (cell && cell.isSolid()) {
+                        // Mine the cell directly
+                        if (this.mineCellDirect(x, y, cell)) {
+                            mined = true;
+                        }
+                    }
+                }
+            }
+        } else if (shape === 'circle') {
+            // Mine a circular area
+            for (let y = centerY - radius; y <= centerY + radius; y++) {
+                for (let x = centerX - radius; x <= centerX + radius; x++) {
+                    // Check if within reach
+                    if (!this.canReach(x, y)) continue;
+                    
+                    // Check if within circle radius
+                    const dx = x - centerX;
+                    const dy = y - centerY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance <= radius + 0.5) { // +0.5 for better circle coverage
+                        const cell = this.world.getCell(x, y);
+                        if (cell && cell.isSolid()) {
+                            // Mine the cell directly
+                            if (this.mineCellDirect(x, y, cell)) {
+                                mined = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return mined;
+    }
+
     mineCell(x, y, cell) {
+        // Wrapper that gets cell if not provided
+        if (!cell) {
+            cell = this.world.getCell(x, y);
+            if (!cell) return false;
+        }
+        return this.mineCellDirect(x, y, cell);
+    }
+
+    mineCellDirect(x, y, cell) {
         if (!cell.isSolid()) return false;
         
         // Shovel is faster for dirt/sand

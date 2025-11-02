@@ -11,7 +11,7 @@ class Game {
         // World properties
         const worldWidth = 400;
         const worldHeight = 300;
-        const cellSize = 4;
+        const cellSize = 12; // Increased from 4 for better visibility
         
         // Initialize cellular automata world
         this.world = new CellularAutomata(worldWidth, worldHeight, cellSize);
@@ -32,7 +32,10 @@ class Game {
         
         // Input handling
         this.keys = {};
-        this.mouse = { x: 0, y: 0, down: false };
+        this.mouse = { x: 0, y: 0, down: false, button: null };
+        this.lastMinedPos = null; // Track last mined position for continuous mining
+        this.miningCooldown = 0; // Cooldown between mining actions
+        this.areaMiningShape = 'square'; // 'square' or 'circle'
         
         // Game state
         this.paused = false;
@@ -89,6 +92,16 @@ class Game {
         window.addEventListener('keydown', (e) => {
             this.keys[e.key.toLowerCase()] = true;
             
+            // Track modifier keys
+            if (e.ctrlKey || e.metaKey) {
+                this.keys['control'] = true;
+            }
+            
+            // Toggle area mining shape with C (when not holding Ctrl)
+            if (!e.ctrlKey && !e.metaKey && (e.key === 'C' || e.key === 'c')) {
+                this.areaMiningShape = this.areaMiningShape === 'square' ? 'circle' : 'square';
+            }
+            
             // Tool selection
             if (e.key >= '1' && e.key <= '9') {
                 this.selectTool(parseInt(e.key));
@@ -111,6 +124,9 @@ class Game {
 
         window.addEventListener('keyup', (e) => {
             this.keys[e.key.toLowerCase()] = false;
+            if (!e.ctrlKey && !e.metaKey) {
+                this.keys['control'] = false;
+            }
         });
 
         // Mouse
@@ -122,11 +138,14 @@ class Game {
 
         this.canvas.addEventListener('mousedown', (e) => {
             this.mouse.down = true;
+            this.mouse.button = e.button; // 0 = left, 2 = right
             this.handleMouseClick(e);
         });
 
         this.canvas.addEventListener('mouseup', () => {
             this.mouse.down = false;
+            this.mouse.button = null;
+            this.lastMinedPos = null; // Reset when mouse released
         });
 
         this.canvas.addEventListener('contextmenu', (e) => {
@@ -174,26 +193,33 @@ class Game {
 
         materials.forEach(material => {
             const count = this.player.getInventoryCount(material);
-            if (count > 0) {
-                const item = document.createElement('div');
-                item.className = 'inventory-item';
-                if (this.player.selectedMaterial === material) {
-                    item.classList.add('selected');
-                }
-                
-                item.innerHTML = `
-                    <div class="inventory-item-name">${material.replace('_', ' ')}</div>
-                    <div class="inventory-item-count">${count}</div>
-                `;
-                
-                item.addEventListener('click', () => {
+            const item = document.createElement('div');
+            item.className = 'inventory-item';
+            if (count === 0) {
+                item.style.opacity = '0.4'; // Dim if no count
+            }
+            if (this.player.selectedMaterial === material) {
+                item.classList.add('selected');
+            }
+            
+            item.innerHTML = `
+                <div class="inventory-item-name">${material.replace('_', ' ')}</div>
+                <div class="inventory-item-count">${count > 0 ? count : '0'}</div>
+            `;
+            
+            item.addEventListener('click', () => {
+                if (count > 0) {
                     this.player.selectedMaterial = material;
                     document.getElementById('selected-material').textContent = material.replace('_', ' ');
                     this.updateInventoryDisplay();
-                });
-                
-                grid.appendChild(item);
-            }
+                } else {
+                    // Show hint if trying to select material they don't have
+                    item.style.animation = 'shake 0.3s';
+                    setTimeout(() => item.style.animation = '', 300);
+                }
+            });
+            
+            grid.appendChild(item);
         });
     }
 
@@ -210,8 +236,17 @@ class Game {
         const playerCenterX = this.player.x + this.player.width / 2;
         this.player.facingDirection = worldX > playerCenterX ? 1 : -1;
         
-        // Use tool
-        this.player.useTool(worldX, worldY);
+        // Check if Ctrl is held for area mining
+        const isAreaMining = this.keys['control'] && 
+                             (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel');
+        
+        // Use tool immediately
+        const success = this.player.useTool(worldX, worldY, isAreaMining, this.areaMiningShape);
+        if (success && (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel')) {
+            this.lastMinedPos = { x: worldX, y: worldY };
+        } else {
+            this.lastMinedPos = null;
+        }
     }
 
     handleRightClick(e) {
@@ -254,6 +289,49 @@ class Game {
             document.getElementById('game-over').classList.remove('hidden');
         }
 
+        // Handle continuous mining when mouse is held down
+        if (this.mouse.down && this.mouse.button === 0) {
+            // Left button held down
+            if (this.miningCooldown <= 0) {
+                const worldX = Math.floor(this.mouse.x / this.camera.cellSize + this.camera.x);
+                const worldY = Math.floor(this.mouse.y / this.camera.cellSize + this.camera.y);
+                
+                // Check if Ctrl is held for area mining
+                const isAreaMining = this.keys['control'] && 
+                                     (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel');
+                
+                if (isAreaMining) {
+                    // Area mining - mine larger area
+                    this.handleContinuousAction(worldX, worldY, true);
+                    // Longer cooldown for area mining since it mines many blocks
+                    this.miningCooldown = 10;
+                } else {
+                    // Normal single-block mining
+                    // Only continue mining if cursor is still over the same cell or adjacent cell
+                    if (this.lastMinedPos) {
+                        const dx = Math.abs(worldX - this.lastMinedPos.x);
+                        const dy = Math.abs(worldY - this.lastMinedPos.y);
+                        if (dx <= 1 && dy <= 1) {
+                            this.handleContinuousAction(worldX, worldY, false);
+                        }
+                    } else {
+                        this.handleContinuousAction(worldX, worldY, false);
+                    }
+                    
+                    // Set cooldown based on tool (mining takes time)
+                    if (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel') {
+                        this.miningCooldown = 5; // Frames between mining attempts
+                    } else {
+                        this.miningCooldown = 3; // Faster for other tools
+                    }
+                }
+            } else {
+                this.miningCooldown--;
+            }
+        } else {
+            this.miningCooldown = 0;
+        }
+
         // Set update region to visible area + buffer for performance
         const startX = Math.max(0, Math.floor(this.camera.x) - 5);
         const endX = Math.min(this.world.width, Math.ceil(this.camera.x + this.canvas.width / this.camera.cellSize) + 5);
@@ -271,6 +349,18 @@ class Game {
         this.updateUI();
 
         this.frameCount++;
+    }
+
+    handleContinuousAction(worldX, worldY, areaMining = false) {
+        // Update player facing direction
+        const playerCenterX = this.player.x + this.player.width / 2;
+        this.player.facingDirection = worldX > playerCenterX ? 1 : -1;
+        
+        // Try to use tool
+        const success = this.player.useTool(worldX, worldY, areaMining, this.areaMiningShape);
+        if (success) {
+            this.lastMinedPos = { x: worldX, y: worldY };
+        }
     }
 
     updateUI() {
@@ -332,7 +422,37 @@ class Game {
         const worldX = Math.floor(this.mouse.x / this.camera.cellSize + this.camera.x);
         const worldY = Math.floor(this.mouse.y / this.camera.cellSize + this.camera.y);
         
-        if (this.player.canReach(worldX, worldY)) {
+        // Check if area mining is active
+        const isAreaMining = this.keys['control'] && 
+                            (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel');
+        
+        if (isAreaMining) {
+            // Draw area mining preview
+            const radius = this.player.areaMiningRadius;
+            const centerScreenX = (worldX - this.camera.x) * this.camera.cellSize;
+            const centerScreenY = (worldY - this.camera.y) * this.camera.cellSize;
+            
+            this.ctx.strokeStyle = 'rgba(255, 200, 0, 0.8)';
+            this.ctx.lineWidth = 2;
+            
+            if (this.areaMiningShape === 'square') {
+                const size = radius * 2 + 1;
+                const previewSize = size * this.camera.cellSize;
+                this.ctx.strokeRect(
+                    centerScreenX - (radius * this.camera.cellSize),
+                    centerScreenY - (radius * this.camera.cellSize),
+                    previewSize,
+                    previewSize
+                );
+            } else {
+                // Circle preview
+                this.ctx.beginPath();
+                this.ctx.arc(centerScreenX + this.camera.cellSize / 2, 
+                           centerScreenY + this.camera.cellSize / 2, 
+                           (radius + 0.5) * this.camera.cellSize, 0, Math.PI * 2);
+                this.ctx.stroke();
+            }
+        } else if (this.player.canReach(worldX, worldY)) {
             const screenX = (worldX - this.camera.x) * this.camera.cellSize;
             const screenY = (worldY - this.camera.y) * this.camera.cellSize;
             
