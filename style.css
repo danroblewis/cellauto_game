@@ -24,6 +24,18 @@ body {
     display: block;
     background: #2a2a2a;
     cursor: crosshair;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+#overlay-canvas {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 5;
 }
 
 /* HUD */

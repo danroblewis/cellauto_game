@@ -2,11 +2,30 @@
 class Game {
     constructor() {
         this.canvas = document.getElementById('game-canvas');
-        this.ctx = this.canvas.getContext('2d');
+        this.overlayCanvas = document.getElementById('overlay-canvas');
         
-        // Set canvas size
+        // Set canvas size FIRST before creating renderer
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
+        
+        if (this.overlayCanvas) {
+            this.overlayCanvas.width = window.innerWidth;
+            this.overlayCanvas.height = window.innerHeight;
+        }
+        
+        // Try WebGL first, fall back to 2D
+        try {
+            this.renderer = new WebGLRenderer(this.canvas, null); // Will set world after creation
+            this.useWebGL = true;
+            console.log('Using WebGL renderer');
+            
+            // Use overlay canvas for 2D drawing when using WebGL
+            this.ctx = this.overlayCanvas.getContext('2d');
+        } catch (e) {
+            console.warn('WebGL not available, falling back to Canvas 2D:', e);
+            this.ctx = this.canvas.getContext('2d');
+            this.useWebGL = false;
+        }
         
         // World properties
         const worldWidth = 400;
@@ -16,6 +35,13 @@ class Game {
         // Initialize cellular automata world
         this.world = new CellularAutomata(worldWidth, worldHeight, cellSize);
         this.world.generateWorld();
+        
+        // Set world in WebGL renderer if using WebGL
+        if (this.useWebGL) {
+            this.renderer.world = this.world;
+            // Ensure viewport is set after world is ready
+            this.renderer.updateViewport();
+        }
         
         // Initialize player
         const startX = worldWidth / 2;
@@ -49,6 +75,7 @@ class Game {
         this.lastTime = 0;
         this.frameCount = 0;
         this.fps = 60;
+        this.time = 0;
         requestAnimationFrame((time) => this.gameLoop(time));
     }
 
@@ -155,8 +182,16 @@ class Game {
 
         // Window resize
         window.addEventListener('resize', () => {
-            this.canvas.width = window.innerWidth;
-            this.canvas.height = window.innerHeight;
+            if (this.useWebGL) {
+                this.renderer.resize(window.innerWidth, window.innerHeight);
+                if (this.overlayCanvas) {
+                    this.overlayCanvas.width = window.innerWidth;
+                    this.overlayCanvas.height = window.innerHeight;
+                }
+            } else {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            }
         });
     }
 
@@ -375,6 +410,20 @@ class Game {
     }
 
     render() {
+        if (this.useWebGL) {
+            // Use WebGL renderer (renders to main canvas)
+            this.renderer.render(this.camera, this.player, this.time);
+            
+            // Clear overlay canvas and draw UI elements
+            this.ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+            this.drawOverlays();
+        } else {
+            // Fallback to Canvas 2D rendering
+            this.renderCanvas2D();
+        }
+    }
+
+    renderCanvas2D() {
         // Clear canvas
         this.ctx.fillStyle = '#2a2a2a';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -405,6 +454,13 @@ class Game {
             }
         }
 
+        this.drawOverlays();
+        
+        // Draw player
+        this.player.draw(this.ctx, this.camera);
+    }
+
+    drawOverlays() {
         // Draw reach indicator
         const reachCells = this.player.getReachCells();
         reachCells.forEach(({ x, y }) => {
@@ -461,13 +517,16 @@ class Game {
             this.ctx.strokeRect(screenX, screenY, this.camera.cellSize, this.camera.cellSize);
         }
 
-        // Draw player
-        this.player.draw(this.ctx, this.camera);
+        // Draw player (if using WebGL, draw on top)
+        if (this.useWebGL) {
+            this.player.draw(this.ctx, this.camera);
+        }
     }
 
     gameLoop(currentTime) {
         const deltaTime = currentTime - this.lastTime;
         this.lastTime = currentTime;
+        this.time = currentTime / 1000; // Convert to seconds
 
         this.update();
         this.render();
