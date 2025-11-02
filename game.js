@@ -34,7 +34,13 @@ class Game {
         
         // Initialize cellular automata world
         this.world = new CellularAutomata(worldWidth, worldHeight, cellSize);
-        this.world.generateWorld();
+        
+        // Check if we have saved state before generating world
+        const savedState = localStorage.getItem('cellauto_game_state');
+        if (!savedState) {
+            // Only generate world if no save exists
+            this.world.generateWorld();
+        }
         
         // Set world in WebGL renderer if using WebGL
         if (this.useWebGL) {
@@ -78,6 +84,14 @@ class Game {
         this.frameCount = 0;
         this.fps = 60;
         this.time = 0;
+        
+        // Load saved state if available
+        this.loadGameState();
+        
+        // Set up auto-save every 10 seconds
+        this.lastSaveTime = Date.now();
+        this.saveInterval = 10000; // 10 seconds in milliseconds
+        
         requestAnimationFrame((time) => this.gameLoop(time));
     }
 
@@ -265,7 +279,7 @@ class Game {
         const materials = [
             CellType.STONE, CellType.DIRT, CellType.SAND, CellType.WOOD,
             CellType.WATER, CellType.LAVA, CellType.ICE, CellType.GLASS,
-            CellType.COAL, CellType.IRON_ORE, CellType.CRYSTAL
+            CellType.COAL, CellType.IRON_ORE, CellType.CRYSTAL, CellType.PUMP
         ];
 
         materials.forEach(material => {
@@ -444,6 +458,13 @@ class Game {
 
         // Update UI
         this.updateUI();
+
+        // Auto-save every 30 seconds
+        const currentTime = Date.now();
+        if (currentTime - this.lastSaveTime >= this.saveInterval) {
+            this.saveGameState();
+            this.lastSaveTime = currentTime;
+        }
 
         this.frameCount++;
     }
@@ -627,6 +648,85 @@ class Game {
         this.player.y = this.findGroundLevel(this.player.x) - 5;
         this.player.health = this.player.maxHealth;
         this.player.velocity = { x: 0, y: 0 };
+    }
+
+    saveGameState() {
+        try {
+            const gameState = {
+                world: this.world.serialize(),
+                player: {
+                    x: this.player.x,
+                    y: this.player.y,
+                    health: this.player.health,
+                    selectedMaterial: this.player.selectedMaterial,
+                    currentTool: this.player.currentTool,
+                    inventory: Array.from(this.player.inventory.entries())
+                },
+                timestamp: Date.now()
+            };
+
+            localStorage.setItem('cellauto_game_state', JSON.stringify(gameState));
+            console.log('Game state saved');
+        } catch (e) {
+            console.error('Failed to save game state:', e);
+            // Handle quota exceeded error
+            if (e.name === 'QuotaExceededError') {
+                console.warn('localStorage quota exceeded, unable to save');
+            }
+        }
+    }
+
+    loadGameState() {
+        try {
+            const savedState = localStorage.getItem('cellauto_game_state');
+            if (!savedState) {
+                console.log('No saved game state found, starting fresh');
+                return;
+            }
+
+            const gameState = JSON.parse(savedState);
+            
+            // Load world state
+            if (gameState.world) {
+                const worldLoaded = this.world.loadFromData(gameState.world);
+                if (worldLoaded && this.useWebGL) {
+                    // Update WebGL texture after loading
+                    this.renderer.updateTexture();
+                }
+            }
+
+            // Load player state
+            if (gameState.player) {
+                const p = gameState.player;
+                this.player.x = p.x || this.player.x;
+                this.player.y = p.y || this.player.y;
+                this.player.health = p.health !== undefined ? p.health : this.player.health;
+                this.player.selectedMaterial = p.selectedMaterial || this.player.selectedMaterial;
+                this.player.currentTool = p.currentTool || this.player.currentTool;
+                
+                // Restore inventory
+                if (p.inventory) {
+                    this.player.inventory = new Map(p.inventory);
+                }
+
+                // Update camera to player position
+                this.camera.x = this.player.x - this.canvas.width / (2 * this.camera.cellSize);
+                this.camera.y = this.player.y - this.canvas.height / (2 * this.camera.cellSize);
+
+                // Update UI
+                this.selectTool(this.getToolNumber(this.player.currentTool));
+                this.updateInventoryDisplay();
+                
+                console.log('Game state loaded');
+            }
+        } catch (e) {
+            console.error('Failed to load game state:', e);
+        }
+    }
+
+    getToolNumber(toolName) {
+        const tools = ['pickaxe', 'shovel', 'bucket', 'place', 'torch'];
+        return tools.indexOf(toolName) + 1 || 1;
     }
 }
 

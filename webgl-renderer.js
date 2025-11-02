@@ -124,6 +124,8 @@ class WebGLRenderer {
                                hexColor(vec3(255.0, 200.0, 0.0)), 
                                fireNoise * 0.5 + 0.5);
                 }
+                else if (cellType < 18.5) color = hexColor(vec3(101.0, 67.0, 33.0)); // Seed
+                else if (cellType < 19.5) color = hexColor(vec3(0.0, 255.0, 255.0)); // Pump - cyan
                 
                 return color;
             }
@@ -271,7 +273,7 @@ class WebGLRenderer {
                         'wood': 4, 'water': 5, 'lava': 6, 'oil': 7,
                         'steam': 8, 'smoke': 9, 'coal': 10, 'iron_ore': 11,
                         'ice': 12, 'glass': 13, 'acid': 14, 'crystal': 15,
-                        'grass': 16, 'fire': 17, 'seed': 18
+                        'grass': 16, 'fire': 17, 'seed': 18, 'pump': 19
                     };
                     
                     data[idx] = typeMap[cell.type] || 0; // R: cell type

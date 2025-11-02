@@ -19,6 +19,7 @@ class CellType {
     static GRASS = 'grass';
     static FIRE = 'fire';
     static SEED = 'seed';
+    static PUMP = 'pump';
 }
 
 class Cell {
@@ -37,13 +38,14 @@ class Cell {
     isStoneLike() {
         // Materials that need structural stability checking
         return this.type === CellType.STONE || this.type === CellType.IRON_ORE || 
-               this.type === CellType.CRYSTAL || this.type === CellType.GLASS;
+               this.type === CellType.CRYSTAL || this.type === CellType.GLASS ||
+               this.type === CellType.PUMP;
     }
 
     isSolid() {
         return [CellType.STONE, CellType.DIRT, CellType.SAND, CellType.WOOD,
                 CellType.COAL, CellType.IRON_ORE, CellType.ICE, CellType.GLASS,
-                CellType.CRYSTAL, CellType.GRASS].includes(this.type);
+                CellType.CRYSTAL, CellType.GRASS, CellType.PUMP].includes(this.type);
     }
 
     isLiquid() {
@@ -78,7 +80,8 @@ class Cell {
             [CellType.CRYSTAL]: 2.8,
             [CellType.GRASS]: 0.3,
             [CellType.FIRE]: 0.0001,
-            [CellType.SEED]: 0.5
+            [CellType.SEED]: 0.5,
+            [CellType.PUMP]: 2.0
         };
         return densities[this.type] || 1.0;
     }
@@ -103,7 +106,8 @@ class Cell {
             [CellType.CRYSTAL]: '#FF69B4',
             [CellType.GRASS]: '#228B22',
             [CellType.FIRE]: '#FF4400',
-            [CellType.SEED]: '#654321'
+            [CellType.SEED]: '#654321',
+            [CellType.PUMP]: '#00FFFF'
         };
         return colors[this.type] || '#FFFFFF';
     }
@@ -403,6 +407,14 @@ class CellularAutomata {
             return false; // Stable stones don't fall
         }
 
+        // Liquids adjacent to pump blocks don't fall - they're being pulled up
+        if (cell.isLiquid()) {
+            const pumpForce = this.getPumpForce(x, y);
+            if (pumpForce > 0) {
+                return false; // Don't fall if there's a pump nearby
+            }
+        }
+
         // Can fall through air or lighter materials
         if (below.type === CellType.AIR || 
             (below.isLiquid() && cell.getDensity() > below.getDensity()) ||
@@ -445,6 +457,25 @@ class CellularAutomata {
             if (Math.random() > 0.3) return;
         }
 
+        // Check for nearby pump blocks that apply upward force
+        const pumpForce = this.getPumpForce(x, y);
+        
+        // If there's upward pump force, try to move up with higher priority
+        if (pumpForce > 0) {
+            const above = this.getCell(x, y - 1);
+            if (above && above.type === CellType.AIR) {
+                // Stronger pump force = higher probability of moving up
+                // With 2 pump blocks nearby (one on each side), should be very likely to rise
+                const moveUpProbability = Math.min(0.95, 0.3 + pumpForce * 0.25);
+                if (Math.random() < moveUpProbability) {
+                    if (this.swap(x, y, x, y - 1)) {
+                        this.markActive(x, y - 1);
+                        return;
+                    }
+                }
+            }
+        }
+
         const dirs = [
             { x: -1, y: 0 }, { x: 1, y: 0 },
             { x: -1, y: 1 }, { x: 1, y: 1 }
@@ -463,6 +494,29 @@ class CellularAutomata {
                 }
             }
         }
+    }
+
+    getPumpForce(x, y) {
+        // Check 8-directional neighbors for pump blocks
+        // Count how many pump blocks are nearby
+        let pumpCount = 0;
+        const neighbors = [
+            { x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 },
+            { x: -1, y: 0 },                    { x: 1, y: 0 },
+            { x: -1, y: 1 },  { x: 0, y: 1 },  { x: 1, y: 1 }
+        ];
+
+        for (const neighbor of neighbors) {
+            const cell = this.getCell(x + neighbor.x, y + neighbor.y);
+            if (cell && cell.type === CellType.PUMP) {
+                pumpCount++;
+            }
+        }
+
+        // Return pump force based on number of nearby pumps
+        // More pumps = stronger upward force
+        // Also consider diagonal pumps slightly less effective
+        return pumpCount;
     }
 
     applyGasBehavior(cell, x, y) {
@@ -677,6 +731,82 @@ class CellularAutomata {
             for (let x = 0; x < this.width; x++) {
                 this.markActive(x, y);
             }
+        }
+    }
+
+    serialize() {
+        // Serialize world state to JSON
+        const data = {
+            width: this.width,
+            height: this.height,
+            cellSize: this.cellSize,
+            cells: []
+        };
+
+        // Only save non-air cells to reduce data size
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const cell = this.grid[y][x];
+                if (cell.type !== CellType.AIR || cell.temperature !== 20 || cell.stable !== false) {
+                    data.cells.push({
+                        x: x,
+                        y: y,
+                        type: cell.type,
+                        temperature: Math.round(cell.temperature * 10) / 10, // Round to 1 decimal
+                        stable: cell.stable
+                    });
+                }
+            }
+        }
+
+        return JSON.stringify(data);
+    }
+
+    loadFromData(jsonString) {
+        try {
+            const data = JSON.parse(jsonString);
+            
+            // Validate dimensions
+            if (data.width !== this.width || data.height !== this.height) {
+                console.warn('Saved world dimensions do not match current world');
+                return false;
+            }
+
+            // Reset all cells to air
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    const cell = this.grid[y][x];
+                    cell.type = CellType.AIR;
+                    cell.temperature = 20;
+                    cell.pressure = 0;
+                    cell.velocity = { x: 0, y: 0 };
+                    cell.age = 0;
+                    cell.stable = false;
+                }
+            }
+
+            // Restore saved cells
+            data.cells.forEach(cellData => {
+                if (cellData.x >= 0 && cellData.x < this.width &&
+                    cellData.y >= 0 && cellData.y < this.height) {
+                    const cell = this.grid[cellData.y][cellData.x];
+                    cell.type = cellData.type;
+                    cell.temperature = cellData.temperature || 20;
+                    cell.stable = cellData.stable || false;
+                    
+                    // Mark as active to trigger physics updates
+                    this.markActive(cellData.x, cellData.y);
+                }
+            });
+
+            // Mark stability as dirty to recalculate
+            this.stabilityDirty = true;
+            
+            console.log('World loaded from save data');
+            return true;
+        } catch (e) {
+            console.error('Failed to load world data:', e);
+            return false;
         }
     }
 }
