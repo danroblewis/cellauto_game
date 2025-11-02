@@ -22,7 +22,7 @@ class Player {
         this.invincibilityDuration = 30;
         
         // Interaction
-        this.reachDistance = 8; // cells (increased from 4)
+        this.reachDistance = 28; // cells (increased from 8)
         this.currentTool = 'pickaxe';
         this.areaMiningRadius = 3; // Radius for large area (Ctrl key)
         this.mediumAreaRadius = 1; // Radius for medium area (Alt key)
