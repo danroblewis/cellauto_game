@@ -20,6 +20,7 @@ class CellType {
     static FIRE = 'fire';
     static SEED = 'seed';
     static PUMP = 'pump';
+    static SUPPORT = 'support';
 }
 
 class Cell {
@@ -39,13 +40,19 @@ class Cell {
         // Materials that need structural stability checking
         return this.type === CellType.STONE || this.type === CellType.IRON_ORE || 
                this.type === CellType.CRYSTAL || this.type === CellType.GLASS ||
-               this.type === CellType.PUMP;
+               this.type === CellType.PUMP || this.type === CellType.SUPPORT;
     }
 
     isSolid() {
         return [CellType.STONE, CellType.DIRT, CellType.SAND, CellType.WOOD,
                 CellType.COAL, CellType.IRON_ORE, CellType.ICE, CellType.GLASS,
                 CellType.CRYSTAL, CellType.GRASS, CellType.PUMP].includes(this.type);
+        // Note: SUPPORT is intentionally not solid - it doesn't block movement
+    }
+    
+    providesStability() {
+        // Blocks that provide structural stability support (even if not solid)
+        return this.isSolid() || this.type === CellType.SUPPORT;
     }
 
     isLiquid() {
@@ -81,7 +88,8 @@ class Cell {
             [CellType.GRASS]: 0.3,
             [CellType.FIRE]: 0.0001,
             [CellType.SEED]: 0.5,
-            [CellType.PUMP]: 2.0
+            [CellType.PUMP]: 2.0,
+            [CellType.SUPPORT]: 0.1
         };
         return densities[this.type] || 1.0;
     }
@@ -107,7 +115,8 @@ class Cell {
             [CellType.GRASS]: '#228B22',
             [CellType.FIRE]: '#FF4400',
             [CellType.SEED]: '#654321',
-            [CellType.PUMP]: '#00FFFF'
+            [CellType.PUMP]: '#00FFFF',
+            [CellType.SUPPORT]: '#FFFF00'
         };
         return colors[this.type] || '#FFFFFF';
     }
@@ -275,8 +284,8 @@ class CellularAutomata {
 
                 let changed = false;
 
-                // Gravity for solids and liquids (highest priority, most common)
-                if (cell.isSolid() || cell.isLiquid()) {
+                // Gravity for solids, liquids, and stone-like materials (includes support blocks)
+                if (cell.isSolid() || cell.isLiquid() || cell.isStoneLike()) {
                     changed = this.applyGravity(cell, x, y) || changed;
                 }
 
@@ -352,10 +361,12 @@ class CellularAutomata {
                     cell.stable = true;
                 } else {
                     const below = this.grid[y + 1][x];
-                    // Stable if standing on solid non-stone material (dirt, etc.) or stable stone
+                    // Stable if standing on solid non-stone material (dirt, etc.), stable stone, or support block
                     if (below.isSolid() && !below.isStoneLike()) {
                         cell.stable = true;
                     } else if (below.isStoneLike() && below.stable) {
+                        cell.stable = true;
+                    } else if (below.type === CellType.SUPPORT) {
                         cell.stable = true;
                     }
                 }
@@ -390,6 +401,11 @@ class CellularAutomata {
                                 cell.stable = true;
                                 changed = true;
                                 break;
+                            } else if (neighbor.type === CellType.SUPPORT) {
+                                // Support blocks provide stability to adjacent stones
+                                cell.stable = true;
+                                changed = true;
+                                break;
                             }
                         }
                     }
@@ -402,7 +418,7 @@ class CellularAutomata {
         const below = this.getCell(x, y + 1);
         if (!below) return false;
 
-        // Stone-like materials check stability before falling
+        // Stone-like materials (including support blocks) check stability before falling
         if (cell.isStoneLike() && cell.stable) {
             return false; // Stable stones don't fall
         }
@@ -416,7 +432,11 @@ class CellularAutomata {
         }
 
         // Can fall through air or lighter materials
-        if (below.type === CellType.AIR || 
+        // Stone-like materials (including support blocks) cannot fall through support blocks
+        const canFallThroughSupport = !cell.isStoneLike();
+        
+        if (below.type === CellType.AIR ||
+            (below.type === CellType.SUPPORT && canFallThroughSupport) ||
             (below.isLiquid() && cell.getDensity() > below.getDensity()) ||
             (below.isGas() && cell.getDensity() > below.getDensity())) {
             if (this.swap(x, y, x, y + 1)) {
@@ -431,16 +451,18 @@ class CellularAutomata {
         }
 
         // Check diagonals for solids (only check one diagonal per frame to reduce work)
-        if (cell.isSolid()) {
+        if (cell.isSolid() || cell.type === CellType.SUPPORT) {
             // Use cell position as seed for deterministic randomness
             const seed = (x + y * this.width) % 4;
             if (seed < 2) { // Only check 50% of the time
                 const dir = seed === 0 ? { x: -1, y: 1 } : { x: 1, y: 1 };
                 const diag = this.getCell(x + dir.x, y + dir.y);
                 const belowDiag = this.getCell(x + dir.x, y + dir.y + 1);
+                // Stone-like materials cannot fall diagonally through support blocks
+                const canFallDiagonallyThroughSupport = !cell.isStoneLike();
                 if (diag && belowDiag && 
-                    (diag.type === CellType.AIR || diag.isLiquid()) &&
-                    (belowDiag.type === CellType.AIR || belowDiag.isLiquid())) {
+                    (diag.type === CellType.AIR || (diag.type === CellType.SUPPORT && canFallDiagonallyThroughSupport) || diag.isLiquid()) &&
+                    (belowDiag.type === CellType.AIR || (belowDiag.type === CellType.SUPPORT && canFallDiagonallyThroughSupport) || belowDiag.isLiquid())) {
                     if (this.swap(x, y, x + dir.x, y + dir.y)) {
                         this.markActive(x + dir.x, y + dir.y);
                         return true;
@@ -463,7 +485,7 @@ class CellularAutomata {
         // If there's upward pump force, try to move up with higher priority
         if (pumpForce > 0) {
             const above = this.getCell(x, y - 1);
-            if (above && above.type === CellType.AIR) {
+            if (above && (above.type === CellType.AIR || above.type === CellType.SUPPORT)) {
                 // Stronger pump force = higher probability of moving up
                 // With 2 pump blocks nearby (one on each side), should be very likely to rise
                 const moveUpProbability = Math.min(0.95, 0.3 + pumpForce * 0.25);
@@ -485,8 +507,8 @@ class CellularAutomata {
             const target = this.getCell(x + dir.x, y + dir.y);
             if (!target) continue;
 
-            // Flow to empty space or lighter fluids
-            if (target.type === CellType.AIR || 
+            // Flow to empty space, support blocks, or lighter fluids
+            if (target.type === CellType.AIR || target.type === CellType.SUPPORT ||
                 (target.isLiquid() && cell.getDensity() > target.getDensity())) {
                 if (Math.random() > 0.5) {
                     this.swap(x, y, x + dir.x, y + dir.y);

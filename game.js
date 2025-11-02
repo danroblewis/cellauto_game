@@ -279,7 +279,8 @@ class Game {
         const materials = [
             CellType.STONE, CellType.DIRT, CellType.SAND, CellType.WOOD,
             CellType.WATER, CellType.LAVA, CellType.ICE, CellType.GLASS,
-            CellType.COAL, CellType.IRON_ORE, CellType.CRYSTAL, CellType.PUMP
+            CellType.COAL, CellType.IRON_ORE, CellType.CRYSTAL, CellType.PUMP,
+            CellType.SUPPORT
         ];
 
         materials.forEach(material => {
