@@ -225,6 +225,14 @@ class Game {
 
     selectTool(toolNumber) {
         const tools = ['pickaxe', 'shovel', 'bucket', 'place', 'torch'];
+        const toolNames = {
+            'pickaxe': 'Pickaxe',
+            'shovel': 'Shovel',
+            'bucket': 'Bucket',
+            'place': 'Placement Tool',
+            'torch': 'Torch'
+        };
+        
         if (toolNumber >= 1 && toolNumber <= tools.length) {
             this.player.currentTool = tools[toolNumber - 1];
             
@@ -232,6 +240,12 @@ class Game {
             document.querySelectorAll('.tool-slot').forEach((slot, index) => {
                 slot.classList.toggle('active', index + 1 === toolNumber);
             });
+            
+            // Update tool indicator
+            const toolNameElement = document.getElementById('current-tool');
+            if (toolNameElement) {
+                toolNameElement.textContent = toolNames[this.player.currentTool];
+            }
         }
     }
 

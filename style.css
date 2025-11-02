@@ -136,9 +136,25 @@ body {
     border-radius: 3px;
 }
 
-#material-indicator {
+#tool-indicator {
     position: absolute;
     top: 50px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 8px 12px;
+    border-radius: 5px;
+    border: 1px solid #fff;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#tool-indicator #current-tool {
+    text-transform: capitalize;
+}
+
+#material-indicator {
+    position: absolute;
+    top: 90px;
     left: 10px;
     background: rgba(0, 0, 0, 0.7);
     padding: 8px 12px;
