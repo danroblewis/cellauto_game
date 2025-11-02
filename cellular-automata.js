@@ -31,6 +31,13 @@ class Cell {
         this.velocity = { x: 0, y: 0 };
         this.age = 0;
         this.updateCount = 0;
+        this.stable = false; // Structural stability (for stone)
+    }
+
+    isStoneLike() {
+        // Materials that need structural stability checking
+        return this.type === CellType.STONE || this.type === CellType.IRON_ORE || 
+               this.type === CellType.CRYSTAL || this.type === CellType.GLASS;
     }
 
     isSolid() {
@@ -113,6 +120,8 @@ class CellularAutomata {
         this.activeCells = new Set(); // Track cells that need updates
         this.frameSkip = 0; // Skip frames for performance
         this.updateRegion = null; // Only update visible region + buffer
+        this.stabilityDirty = true; // Stability needs recalculation
+        this.stabilityFrameSkip = 0; // Don't recalculate stability every frame
         
         // Initialize grids
         for (let y = 0; y < height; y++) {
@@ -160,15 +169,38 @@ class CellularAutomata {
         }
         const cell = this.grid[y][x];
         const wasAir = cell.type === CellType.AIR;
+        const wasStoneLike = cell.isStoneLike();
+        
         cell.type = type;
         cell.temperature = 20;
         cell.velocity = { x: 0, y: 0 };
         cell.age = 0;
+        cell.stable = false; // Reset stability
         
         // Mark as active if changed from/to air
         if (wasAir !== (type === CellType.AIR)) {
             this.markActive(x, y);
         }
+        
+        // If stone-like material was added/removed, mark stability as dirty
+        if (wasStoneLike !== cell.isStoneLike()) {
+            this.stabilityDirty = true;
+            // Mark neighbors for stability recalculation
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+                        const neighbor = this.grid[ny][nx];
+                        if (neighbor.isStoneLike()) {
+                            neighbor.stable = false; // Invalidate neighbor stability
+                        }
+                    }
+                }
+            }
+        }
+        
         return true;
     }
 
@@ -190,6 +222,12 @@ class CellularAutomata {
         // Mark both cells as active
         this.markActive(x1, y1);
         this.markActive(x2, y2);
+        
+        // If stone-like materials moved, mark stability as dirty
+        if (this.grid[y1][x1].isStoneLike() || this.grid[y2][x2].isStoneLike()) {
+            this.stabilityDirty = true;
+        }
+        
         return true;
     }
 
@@ -278,11 +316,92 @@ class CellularAutomata {
             const toRemove = Array.from(this.activeCells).slice(0, 500);
             toRemove.forEach(key => this.activeCells.delete(key));
         }
+
+        // Update stability system (less frequently for performance)
+        this.stabilityFrameSkip++;
+        if (this.stabilityFrameSkip >= 3 || this.stabilityDirty) {
+            this.updateStability();
+            this.stabilityFrameSkip = 0;
+            this.stabilityDirty = false;
+        }
+    }
+
+    updateStability() {
+        // Reset all stone-like stability
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const cell = this.grid[y][x];
+                if (cell.isStoneLike()) {
+                    cell.stable = false;
+                }
+            }
+        }
+
+        // Pass 1: Mark stones directly on ground or on solid non-stone materials
+        for (let y = this.height - 1; y >= 0; y--) {
+            for (let x = 0; x < this.width; x++) {
+                const cell = this.grid[y][x];
+                if (!cell.isStoneLike()) continue;
+
+                // Check if on ground (bottom of world) or on solid surface
+                if (y === this.height - 1) {
+                    cell.stable = true;
+                } else {
+                    const below = this.grid[y + 1][x];
+                    // Stable if standing on solid non-stone material (dirt, etc.) or stable stone
+                    if (below.isSolid() && !below.isStoneLike()) {
+                        cell.stable = true;
+                    } else if (below.isStoneLike() && below.stable) {
+                        cell.stable = true;
+                    }
+                }
+            }
+        }
+
+        // Pass 2+: Propagate stability through connected stones (4-directional)
+        // Run multiple passes to handle long chains
+        let changed = true;
+        let iterations = 0;
+        const maxIterations = Math.max(this.width, this.height); // Safety limit
+
+        while (changed && iterations < maxIterations) {
+            changed = false;
+            iterations++;
+
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    const cell = this.grid[y][x];
+                    if (!cell.isStoneLike() || cell.stable) continue;
+
+                    // Check if any neighbor stone is stable
+                    const neighbors = [
+                        { x: x - 1, y: y }, { x: x + 1, y: y },
+                        { x: x, y: y - 1 }, { x: x, y: y + 1 }
+                    ];
+
+                    for (const n of neighbors) {
+                        if (n.x >= 0 && n.x < this.width && n.y >= 0 && n.y < this.height) {
+                            const neighbor = this.grid[n.y][n.x];
+                            if (neighbor.isStoneLike() && neighbor.stable) {
+                                cell.stable = true;
+                                changed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     applyGravity(cell, x, y) {
         const below = this.getCell(x, y + 1);
         if (!below) return false;
+
+        // Stone-like materials check stability before falling
+        if (cell.isStoneLike() && cell.stable) {
+            return false; // Stable stones don't fall
+        }
 
         // Can fall through air or lighter materials
         if (below.type === CellType.AIR || 
@@ -290,6 +409,10 @@ class CellularAutomata {
             (below.isGas() && cell.getDensity() > below.getDensity())) {
             if (this.swap(x, y, x, y + 1)) {
                 this.markActive(x, y + 1);
+                // If stone moved, mark stability as dirty
+                if (cell.isStoneLike()) {
+                    this.stabilityDirty = true;
+                }
                 return true;
             }
             return false;
