@@ -142,6 +142,9 @@ class Game {
             if (e.altKey) {
                 this.keys['alt'] = true;
             }
+            if (e.shiftKey) {
+                this.keys['shift'] = true;
+            }
             
             // Toggle area mining shape with C (when not holding modifiers)
             if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'C' || e.key === 'c')) {
@@ -178,6 +181,9 @@ class Game {
             if (!e.altKey) {
                 this.keys['alt'] = false;
             }
+            if (!e.shiftKey) {
+                this.keys['shift'] = false;
+            }
         });
         
         // Also track modifier keys globally via window focus/blur and periodic checks
@@ -186,6 +192,7 @@ class Game {
             // Clear modifier keys when window loses focus
             this.keys['control'] = false;
             this.keys['alt'] = false;
+            this.keys['shift'] = false;
         });
 
         // Mouse
@@ -331,6 +338,7 @@ class Game {
         // Check modifier keys for area operations - check both stored keys and event modifiers
         const hasControl = this.keys['control'] || e.ctrlKey || e.metaKey;
         const hasAlt = this.keys['alt'] || e.altKey;
+        const hasShift = this.keys['shift'] || e.shiftKey;
         const supportsAreaMode = this.player.currentTool === 'pickaxe' || 
                                 this.player.currentTool === 'shovel' || 
                                 this.player.currentTool === 'place';
@@ -343,7 +351,7 @@ class Game {
         }
         
         // Use tool immediately
-        const success = this.player.useTool(worldX, worldY, areaMode);
+        const success = this.player.useTool(worldX, worldY, areaMode, 0, hasShift);
         if (success && (this.player.currentTool === 'pickaxe' || this.player.currentTool === 'shovel' || this.player.currentTool === 'place')) {
             this.lastMinedPos = { x: worldX, y: worldY };
         } else {
@@ -404,6 +412,7 @@ class Game {
                                         this.player.currentTool === 'place';
                 const hasControl = this.keys['control'];
                 const hasAlt = this.keys['alt'];
+                const hasShift = this.keys['shift'];
                 
                 let areaMode = false;
                 if (hasControl && supportsAreaMode) {
@@ -414,7 +423,7 @@ class Game {
                 
                 if (areaMode) {
                     // Area operation
-                    this.handleContinuousAction(worldX, worldY, areaMode);
+                    this.handleContinuousAction(worldX, worldY, areaMode, hasShift);
                     // Longer cooldown for area operations since they affect many blocks
                     this.miningCooldown = areaMode === 'large' ? 10 : 7;
                 } else {
@@ -424,10 +433,10 @@ class Game {
                         const dx = Math.abs(worldX - this.lastMinedPos.x);
                         const dy = Math.abs(worldY - this.lastMinedPos.y);
                         if (dx <= 1 && dy <= 1) {
-                            this.handleContinuousAction(worldX, worldY, false);
+                            this.handleContinuousAction(worldX, worldY, false, hasShift);
                         }
                     } else {
-                        this.handleContinuousAction(worldX, worldY, false);
+                        this.handleContinuousAction(worldX, worldY, false, hasShift);
                     }
                     
                     // Set cooldown based on tool (mining takes time)
@@ -470,13 +479,13 @@ class Game {
         this.frameCount++;
     }
 
-    handleContinuousAction(worldX, worldY, areaMode = false) {
+    handleContinuousAction(worldX, worldY, areaMode = false, replaceMode = false) {
         // Update player facing direction
         const playerCenterX = this.player.x + this.player.width / 2;
         this.player.facingDirection = worldX > playerCenterX ? 1 : -1;
         
         // Try to use tool
-        const success = this.player.useTool(worldX, worldY, areaMode);
+        const success = this.player.useTool(worldX, worldY, areaMode, 0, replaceMode);
         if (success) {
             this.lastMinedPos = { x: worldX, y: worldY };
         }

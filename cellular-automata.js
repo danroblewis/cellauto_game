@@ -229,18 +229,22 @@ class CellularAutomata {
         const cell1 = this.grid[y1][x1];
         const cell2 = this.grid[y2][x2];
         
-        // Preserve hasSupport flags at their original locations
+        // Preserve support properties at their original locations
         const support1 = cell1.hasSupport;
         const support2 = cell2.hasSupport;
+        const supportStable1 = cell1.supportStable;
+        const supportStable2 = cell2.supportStable;
         
         // Swap the cells
         const temp = this.grid[y1][x1];
         this.grid[y1][x1] = this.grid[y2][x2];
         this.grid[y2][x2] = temp;
         
-        // Restore support flags to their original locations
+        // Restore support properties to their original locations
         this.grid[y1][x1].hasSupport = support1;
         this.grid[y2][x2].hasSupport = support2;
+        this.grid[y1][x1].supportStable = supportStable1;
+        this.grid[y2][x2].supportStable = supportStable2;
         
         // Update positions
         this.grid[y1][x1].x = x1;
@@ -500,9 +504,12 @@ class CellularAutomata {
         const below = this.getCell(x, y + 1);
         if (!below) return false;
 
-        // Stone-like materials (including support blocks) check stability before falling
-        if (cell.isStoneLike() && cell.stable) {
-            return false; // Stable stones don't fall
+        // Stone-like materials check stability before falling
+        if (cell.isStoneLike()) {
+            // Don't fall if stable OR if standing on support
+            if (cell.stable || below.hasSupport) {
+                return false;
+            }
         }
 
         // Liquids adjacent to pump blocks don't fall - they're being pulled up
@@ -513,10 +520,14 @@ class CellularAutomata {
             }
         }
 
-        // Can fall through air or lighter materials
+        // Can fall through air or lighter materials (but not through support for stone-like blocks)
         if (below.type === CellType.AIR ||
             (below.isLiquid() && cell.getDensity() > below.getDensity()) ||
             (below.isGas() && cell.getDensity() > below.getDensity())) {
+            // Stone-like materials shouldn't fall through support
+            if (cell.isStoneLike() && below.hasSupport) {
+                return false;
+            }
             if (this.swap(x, y, x, y + 1)) {
                 this.markActive(x, y + 1);
                 // If stone moved, mark stability as dirty
