@@ -517,8 +517,8 @@ class Game {
     }
 
     renderCanvas2D() {
-        // Clear canvas
-        this.ctx.fillStyle = '#2a2a2a';
+        // Clear canvas with dark background
+        this.ctx.fillStyle = '#1a1a1a';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         // Calculate visible cell range
@@ -530,6 +530,23 @@ class Game {
         // Optimized rendering: batch same-color cells
         const cellSize = this.camera.cellSize;
         
+        // Draw checkerboard pattern for air blocks
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+                const cell = this.world.getCell(x, y);
+                const screenX = (x - this.camera.x) * cellSize;
+                const screenY = (y - this.camera.y) * cellSize;
+                
+                if (cell && cell.type === CellType.AIR) {
+                    // Checkerboard pattern for empty space
+                    const isLight = (x + y) % 2 === 0;
+                    this.ctx.fillStyle = isLight ? '#2a2a2a' : '#242424';
+                    this.ctx.fillRect(screenX, screenY, cellSize, cellSize);
+                }
+            }
+        }
+        
+        // Draw actual blocks
         for (let y = startY; y < endY; y++) {
             for (let x = startX; x < endX; x++) {
                 const cell = this.world.getCell(x, y);
