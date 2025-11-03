@@ -40,13 +40,45 @@ A web-based 2D platformer/sandbox game powered by cellular automata physics.
 
 Simply open `index.html` in a web browser. No build process or server required!
 
+## Running Tests
+
+The game includes a comprehensive unit test suite (54 tests) for the cellular automata simulation.
+
+### Command Line (Recommended)
+```bash
+node cellular-automata.test.js
+```
+
+Or make it executable and run directly:
+```bash
+chmod +x cellular-automata.test.js
+./cellular-automata.test.js
+```
+
+### Browser Console
+1. Open `index.html` in a browser
+2. Open browser console (F12)
+3. Run: `runner.run()`
+
+See `TESTING.md` for detailed testing documentation.
+
 ## File Structure
 
+### Core Files
 - `index.html` - Main HTML file
 - `style.css` - Styling and UI
 - `game.js` - Main game loop and logic
 - `player.js` - Player character class
 - `cellular-automata.js` - Core cellular automata physics engine
+- `webgl-renderer.js` - WebGL accelerated rendering
+
+### Documentation
+- `README.md` - This file
+- `GAME_SPECIFICATION.md` - Detailed game design specification
+- `TESTING.md` - Testing documentation
+
+### Testing
+- `cellular-automata.test.js` - Unit test suite (executable with Node.js)
 
 ## Cell Types
 

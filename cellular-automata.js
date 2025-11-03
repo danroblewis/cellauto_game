@@ -927,3 +927,8 @@ class CellularAutomata {
     }
 }
 
+// Export for Node.js (CommonJS)
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { CellType, Cell, CellularAutomata };
+}
+
