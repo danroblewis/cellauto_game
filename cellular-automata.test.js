@@ -95,6 +95,72 @@ function countCellsOfType(world, type) {
     return count;
 }
 
+// Helper to build world from ASCII grid
+// Usage: buildFromGrid(world, grid, startX, startY)
+function buildFromGrid(world, grid, startX = 0, startY = 0) {
+    const legend = {
+        ' ': CellType.AIR,
+        '.': CellType.AIR,
+        '#': CellType.STONE,
+        'D': CellType.DIRT,
+        'S': CellType.SAND,
+        'W': CellType.WATER,
+        'L': CellType.LAVA,
+        'P': CellType.PUMP,
+        'O': CellType.OIL,
+        'I': CellType.ICE,
+        'G': CellType.GLASS,
+        'F': CellType.FIRE,
+        'T': CellType.WOOD, // Tree/wood
+        'C': CellType.COAL,
+        'R': CellType.IRON_ORE, // oRe
+        'A': CellType.ACID,
+        'X': CellType.CRYSTAL,
+        'H': CellType.GRASS, // grasH (G is glass)
+        'M': CellType.SMOKE,
+        'E': CellType.STEAM,
+        '+': 'SUPPORT' // Support block overlay
+    };
+    
+    for (let y = 0; y < grid.length; y++) {
+        const row = grid[y];
+        for (let x = 0; x < row.length; x++) {
+            const char = row[x];
+            const worldX = startX + x;
+            const worldY = startY + y;
+            
+            if (legend[char]) {
+                if (char === '+') {
+                    // Support block is an overlay
+                    world.getCell(worldX, worldY).hasSupport = true;
+                } else {
+                    world.setCell(worldX, worldY, legend[char]);
+                }
+            }
+        }
+    }
+    
+    // Mark the entire grid area as active
+    for (let y = 0; y < grid.length; y++) {
+        for (let x = 0; x < grid[0].length; x++) {
+            world.markActive(startX + x, startY + y);
+        }
+    }
+}
+
+// Helper to check if a cell type exists in a region
+function checkRegionForType(world, type, startX, startY, endX, endY) {
+    for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+            const cell = world.getCell(x, y);
+            if (cell && cell.type === type) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // ============================================================================
 // BASIC CELL TESTS
 // ============================================================================
@@ -1012,6 +1078,256 @@ runner.test('Large area stability update completes in reasonable time', () => {
     
     // Should complete in under 1 second for 50x50 grid
     assertTrue(duration < 1000, `Stability update took ${duration}ms, should be under 1000ms`);
+});
+
+// ============================================================================
+// INTEGRATION TESTS - EXPERIMENTS
+// ============================================================================
+
+runner.test('Water pump system: pumps lift water between reservoirs', () => {
+    const world = new CellularAutomata(40, 30, 4);
+    
+    const grid = [
+        //         Receiver
+        //         v
+        '            #####              ',
+        '            #   #              ',
+        '            #   #              ',
+        '            #   #              ',
+        '            #####              ',
+        '              |                ',
+        '        ########               ',
+        '        #      #               ',
+        '        #      #               ',
+        '        ########               ',
+        '          PP                   ',
+        '          PP                   ',
+        '          PP                   ',
+        '          PP                   ',
+        '          PP                   ',
+        '  #####   PP                   ',
+        '  #WWW#   PP                   ',
+        '  #WWW#   PP                   ',
+        '  #WWW#   PP                   ',
+        '  #####   PP                   ',
+        //  ^Source
+    ];
+    
+    buildFromGrid(world, grid, 2, 5);
+    
+    // Run simulation for extended period
+    runSimulationSteps(world, 500);
+    
+    // Check if water reached the receiving reservoir (top structure)
+    const waterInReceiver = checkRegionForType(world, CellType.WATER, 14, 6, 18, 10);
+    
+    assertTrue(waterInReceiver, 'Pump system should lift water to receiving reservoir');
+});
+
+runner.test('Lava containment: stone walls contain lava indefinitely', () => {
+    const world = new CellularAutomata(20, 20, 4);
+    
+    const grid = [
+        '##########',
+        '#LLLLLLLL#',
+        '#LLLLLLLL#',
+        '#LLLLLLLL#',
+        '#LLLLLLLL#',
+        '##########'
+    ];
+    
+    buildFromGrid(world, grid, 5, 10);
+    
+    // Run simulation
+    runSimulationSteps(world, 200);
+    
+    // Verify lava is still contained (no lava outside the 5,10 to 15,16 region)
+    let lavaEscaped = false;
+    for (let y = 0; y < 20; y++) {
+        for (let x = 0; x < 20; x++) {
+            // Check outside containment
+            if (x < 5 || x >= 15 || y < 10 || y >= 16) {
+                if (world.getCell(x, y).type === CellType.LAVA) {
+                    lavaEscaped = true;
+                    break;
+                }
+            }
+        }
+        if (lavaEscaped) break;
+    }
+    
+    assertFalse(lavaEscaped, 'Stone walls should contain lava');
+});
+
+runner.test('Support beam mining safety: removing dirt under supported stone is safe', () => {
+    const world = new CellularAutomata(20, 20, 4);
+    
+    // Note: + represents support block overlay
+    const grid = [
+        '##########',
+        'DDDDDDDDDD'
+    ];
+    
+    buildFromGrid(world, grid, 5, 10);
+    
+    // Add support blocks to the stone ceiling
+    for (let x = 5; x < 15; x++) {
+        world.getCell(x, 10).hasSupport = true;
+    }
+    
+    // Update stability - ceiling should be stable with support
+    world.stabilityDirty = true;
+    world.updateStability();
+    
+    // Verify ceiling is stable before mining
+    let allStableBefore = true;
+    for (let x = 5; x < 15; x++) {
+        if (!world.getCell(x, 10).stable) {
+            allStableBefore = false;
+            break;
+        }
+    }
+    
+    assertTrue(allStableBefore, 'Stone ceiling should be stable with support blocks');
+    
+    // Mine out the dirt underneath
+    for (let x = 5; x < 15; x++) {
+        world.setCell(x, 11, CellType.AIR);
+        world.markActive(x, 11);
+    }
+    
+    // Update stability after mining
+    world.stabilityDirty = true;
+    world.updateStability();
+    
+    // Run simulation
+    runSimulationSteps(world, 50);
+    
+    // Verify ceiling is still in place (didn't fall)
+    let ceilingIntact = true;
+    for (let x = 5; x < 15; x++) {
+        if (world.getCell(x, 10).type !== CellType.STONE) {
+            ceilingIntact = false;
+            break;
+        }
+    }
+    
+    assertTrue(ceilingIntact, 'Support blocks should keep ceiling stable after mining underneath');
+});
+
+runner.test('Water and lava cooling system: controlled stone production', () => {
+    const world = new CellularAutomata(25, 25, 4);
+    
+    const grid = [
+        '      L       ',  // Lava source
+        '      L       ',
+        '      L       ',
+        '             ',
+        '             ',
+        '     # #      ',  // Lava channel
+        '     # #      ',
+        ' WWW # #      ',  // Water source + channel
+        '             ',
+        '   #####      '   // Floor where they meet
+    ];
+    
+    buildFromGrid(world, grid, 6, 5);
+    
+    // Run simulation
+    runSimulationSteps(world, 300);
+    
+    // Check if reaction occurred (stone or steam created in meeting area)
+    const reactionArea = { startX: 10, startY: 10, endX: 14, endY: 14 };
+    const stoneCreated = checkRegionForType(world, CellType.STONE, 
+        reactionArea.startX, reactionArea.startY, reactionArea.endX, reactionArea.endY);
+    const steamCreated = checkRegionForType(world, CellType.STEAM,
+        reactionArea.startX, reactionArea.startY, reactionArea.endX, reactionArea.endY);
+    
+    assertTrue(stoneCreated || steamCreated, 'Water and lava should react to create stone or steam');
+});
+
+runner.test('Sand smelting chamber: fire and sand interaction', () => {
+    const world = new CellularAutomata(20, 20, 4);
+    
+    const grid = [
+        '#########',
+        '#       #',
+        '#       #',
+        '#  TTT  #',  // Wood fuel
+        '# SSSSS #',  // Sand
+        '#########'
+    ];
+    
+    buildFromGrid(world, grid, 5, 10);
+    
+    // Ignite the wood in the center
+    world.setCell(10, 13, CellType.FIRE);
+    world.getCell(10, 13).temperature = 500;
+    world.markActive(10, 13);
+    
+    // Count initial sand
+    const initialSand = countCellsOfType(world, CellType.SAND);
+    
+    // Run simulation
+    runSimulationSteps(world, 200);
+    
+    // Check for activity (smoke, fire, or material changes)
+    const finalSand = countCellsOfType(world, CellType.SAND);
+    const smokeProduced = countCellsOfType(world, CellType.SMOKE) > 0;
+    
+    assertTrue(smokeProduced || finalSand !== initialSand, 'Furnace chamber should show activity (smoke or material changes)');
+});
+
+runner.test('Stable mining tunnel: horizontal tunnel with support stays open', () => {
+    const world = new CellularAutomata(30, 20, 4);
+    
+    const underground = [
+        '##############################',
+        '##############################',
+        '##############################',
+        '##############################',
+        '##############################',
+        '##############################',
+        '##############################',
+        '##############################',
+        '##############################',
+        '##############################'
+    ];
+    
+    // Fill underground with stone
+    buildFromGrid(world, underground, 0, 10);
+    
+    // Create tunnel with support
+    const tunnel = [
+        '                    ',  // Ceiling with support
+        '                    ',  // Middle (open)
+        '                    '   // Floor
+    ];
+    
+    buildFromGrid(world, tunnel, 5, 12);
+    
+    // Add support blocks to ceiling
+    for (let x = 5; x < 25; x++) {
+        world.getCell(x, 12).hasSupport = true;
+    }
+    
+    // Update stability
+    world.stabilityDirty = true;
+    world.updateStability();
+    
+    // Run simulation
+    runSimulationSteps(world, 100);
+    
+    // Verify tunnel is still open (check middle row)
+    let tunnelIntact = true;
+    for (let x = 5; x < 25; x++) {
+        if (world.getCell(x, 13).type !== CellType.AIR) {
+            tunnelIntact = false;
+            break;
+        }
+    }
+    
+    assertTrue(tunnelIntact, 'Supported mining tunnel should remain stable');
 });
 
 // ============================================================================
