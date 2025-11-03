@@ -292,6 +292,13 @@ class CellularAutomata {
             for (let x = rowStart; (pattern === 0 ? x < rowEnd : x >= rowEnd); x += step) {
                 const cell = this.grid[y][x];
                 
+                // Safety check - skip if cell doesn't exist
+                if (!cell) {
+                    console.warn(`Invalid cell at ${x}, ${y}`);
+                    this.activeCells.delete(`${x},${y}`);
+                    continue;
+                }
+                
                 // Skip air cells (major performance boost)
                 if (cell.type === CellType.AIR) continue;
                 

@@ -35,12 +35,9 @@ class Game {
         // Initialize cellular automata world
         this.world = new CellularAutomata(worldWidth, worldHeight, cellSize);
         
-        // Check if we have saved state before generating world
-        const savedState = localStorage.getItem('cellauto_game_state');
-        if (!savedState) {
-            // Only generate world if no save exists
-            this.world.generateWorld();
-        }
+        // Level generator
+        this.levelGenerator = new LevelGenerator(this.world);
+        this.currentLevelTheme = null;
         
         // Set world in WebGL renderer if using WebGL
         if (this.useWebGL) {
@@ -92,7 +89,19 @@ class Game {
         this.lastSaveTime = Date.now();
         this.saveInterval = 10000; // 10 seconds in milliseconds
         
+        // Start game loop
         requestAnimationFrame((time) => this.gameLoop(time));
+        
+        // Set up level selection menu (always, for event listeners)
+        setTimeout(() => {
+            this.setupLevelSelection();
+            
+            // Only show it if there's no saved state
+            const savedState = localStorage.getItem('cellauto_game_state');
+            if (!savedState) {
+                this.showLevelSelectionMenu();
+            }
+        }, 100);
     }
 
     findGroundLevel(x) {
@@ -242,6 +251,14 @@ class Game {
                 this.canvas.height = window.innerHeight;
             }
         });
+        
+        // New Game button
+        const newGameBtn = document.getElementById('new-game-btn');
+        if (newGameBtn) {
+            newGameBtn.addEventListener('click', () => {
+                this.startNewGame();
+            });
+        }
     }
 
     selectTool(toolNumber) {
@@ -790,9 +807,151 @@ class Game {
         }
     }
 
+    startNewGame() {
+        // Confirm with user
+        const confirmed = confirm('Start a new game? This will clear your current save.');
+        if (!confirmed) {
+            return;
+        }
+        
+        console.log('Starting new game...');
+        
+        // Clear saved state
+        localStorage.removeItem('cellauto_game_state');
+        
+        // Clear the current world
+        for (let x = 0; x < this.world.width; x++) {
+            for (let y = 0; y < this.world.height; y++) {
+                this.world.setCell(x, y, CellType.AIR);
+            }
+        }
+        
+        // Update WebGL texture if using WebGL
+        if (this.useWebGL && this.renderer.updateTexture) {
+            this.renderer.updateTexture();
+        }
+        
+        // Show level selection menu
+        this.showLevelSelectionMenu();
+        
+        console.log('New game initialized, showing level selection');
+    }
+
     getToolNumber(toolName) {
         const tools = ['pickaxe', 'shovel', 'bucket', 'place', 'torch'];
         return tools.indexOf(toolName) + 1 || 1;
+    }
+
+    setupLevelSelection() {
+        console.log('Setting up level selection...');
+        const levelSelect = document.getElementById('level-select');
+        if (!levelSelect) {
+            console.error('Level select element not found!');
+            return;
+        }
+        
+        // Handle level button clicks
+        const levelButtons = document.querySelectorAll('.level-button');
+        console.log(`Found ${levelButtons.length} level buttons`);
+        
+        levelButtons.forEach((button, index) => {
+            // Remove any existing listeners by cloning
+            const newButton = button.cloneNode(true);
+            button.parentNode.replaceChild(newButton, button);
+            
+            newButton.addEventListener('click', () => {
+                console.log(`Button ${index} clicked`);
+                const theme = newButton.getAttribute('data-theme');
+                console.log(`Loading theme: ${theme}`);
+                this.loadLevel(theme);
+                levelSelect.classList.add('hidden');
+            });
+        });
+        
+        // Handle random level
+        const randomButton = document.getElementById('random-level');
+        if (randomButton) {
+            console.log('Found random button');
+            const newRandom = randomButton.cloneNode(true);
+            randomButton.parentNode.replaceChild(newRandom, randomButton);
+            
+            newRandom.addEventListener('click', () => {
+                console.log('Random button clicked');
+                const themes = ['factory', 'waterTreatment', 'mine', 'laboratory', 'underground', 'geothermal'];
+                const randomTheme = themes[Math.floor(Math.random() * themes.length)];
+                console.log(`Random theme selected: ${randomTheme}`);
+                this.loadLevel(randomTheme);
+                levelSelect.classList.add('hidden');
+            });
+        } else {
+            console.error('Random button not found!');
+        }
+    }
+    
+    showLevelSelectionMenu() {
+        console.log('Showing level selection menu...');
+        const levelSelect = document.getElementById('level-select');
+        if (!levelSelect) {
+            console.error('Level select element not found!');
+            return;
+        }
+        
+        levelSelect.classList.remove('hidden');
+        this.paused = true;
+    }
+
+    loadLevel(theme) {
+        console.log(`Loading level: ${theme}`);
+        
+        // Generate level with theme
+        const levelInfo = this.levelGenerator.generateLevel(theme);
+        this.currentLevelTheme = theme;
+        
+        // Set player position to spawn point
+        if (levelInfo.spawnX !== undefined && levelInfo.spawnY !== undefined) {
+            this.player.x = levelInfo.spawnX;
+            this.player.y = levelInfo.spawnY;
+        }
+        
+        // Reset player state
+        this.player.health = this.player.maxHealth;
+        this.player.velocity = { x: 0, y: 0 };
+        
+        // Update camera to player position
+        this.camera.x = this.player.x - this.canvas.width / (2 * this.camera.cellSize);
+        this.camera.y = this.player.y - this.canvas.height / (2 * this.camera.cellSize);
+        
+        // Update WebGL texture if using WebGL
+        if (this.useWebGL && this.renderer.updateTexture) {
+            this.renderer.updateTexture();
+        }
+        
+        // Show level title briefly
+        if (levelInfo.title) {
+            this.showLevelTitle(levelInfo.title, levelInfo.description);
+        }
+        
+        // Unpause game
+        this.paused = false;
+        
+        console.log(`✅ Level loaded: ${levelInfo.title}`);
+    }
+
+    showLevelTitle(title, description) {
+        // Create title overlay
+        const titleEl = document.createElement('div');
+        titleEl.id = 'level-title';
+        titleEl.innerHTML = `
+            <h2>${title}</h2>
+            <p>${description}</p>
+        `;
+        document.body.appendChild(titleEl);
+        
+        // Fade out after 4 seconds
+        setTimeout(() => {
+            titleEl.style.opacity = '0';
+            setTimeout(() => titleEl.remove(), 1000);
+        }, 4000);
     }
 }
 

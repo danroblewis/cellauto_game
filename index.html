@@ -20,6 +20,8 @@
                 </div>
             </div>
             
+            <button id="new-game-btn" class="hud-button" title="Start a new game">New Game</button>
+            
             <div id="tool-hotbar">
                 <div class="tool-slot active" data-tool="pickaxe">
                     <div class="tool-icon">⛏</div>
@@ -71,7 +73,48 @@
         </div>
     </div>
     
+    <!-- Level Selection Menu -->
+    <div id="level-select" class="menu-overlay hidden">
+        <div class="menu-panel">
+            <h1>🏭 Select Level Theme</h1>
+            <div class="level-grid">
+                <button class="level-button" data-theme="factory">
+                    <div class="level-icon">🏭</div>
+                    <div class="level-name">Factory</div>
+                    <div class="level-desc">Industrial complex with machinery</div>
+                </button>
+                <button class="level-button" data-theme="waterTreatment">
+                    <div class="level-icon">💧</div>
+                    <div class="level-name">Water Treatment</div>
+                    <div class="level-desc">Multi-stage purification system</div>
+                </button>
+                <button class="level-button" data-theme="mine">
+                    <div class="level-icon">⛏️</div>
+                    <div class="level-name">Deep Mine</div>
+                    <div class="level-desc">Underground excavation site</div>
+                </button>
+                <button class="level-button" data-theme="laboratory">
+                    <div class="level-icon">🔬</div>
+                    <div class="level-name">Laboratory</div>
+                    <div class="level-desc">Hazardous materials research</div>
+                </button>
+                <button class="level-button" data-theme="underground">
+                    <div class="level-icon">🏢</div>
+                    <div class="level-name">Underground Facility</div>
+                    <div class="level-desc">Hidden subterranean complex</div>
+                </button>
+                <button class="level-button" data-theme="geothermal">
+                    <div class="level-icon">🌋</div>
+                    <div class="level-name">Geothermal Plant</div>
+                    <div class="level-desc">Harness Earth's heat for power</div>
+                </button>
+            </div>
+            <button id="random-level" class="secondary-button">🎲 Random Theme</button>
+        </div>
+    </div>
+    
     <script src="cellular-automata.js"></script>
+    <script src="level-generator.js"></script>
     <script src="player.js"></script>
     <script src="webgl-renderer.js"></script>
     <script src="game.js"></script>
