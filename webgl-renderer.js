@@ -127,6 +127,17 @@ class WebGLRenderer {
                 else if (cellType < 18.5) color = hexColor(vec3(101.0, 67.0, 33.0)); // Seed
                 else if (cellType < 19.5) color = hexColor(vec3(0.0, 255.0, 255.0)); // Pump - cyan
                 else if (cellType < 20.5) color = hexColor(vec3(255.0, 255.0, 0.0)); // Support - yellow
+                // Conveyor belts - orange
+                else if (cellType < 21.5) color = hexColor(vec3(255.0, 176.0, 0.0)); // Conveyor Right
+                else if (cellType < 22.5) color = hexColor(vec3(255.0, 176.0, 0.0)); // Conveyor Left
+                else if (cellType < 23.5) color = hexColor(vec3(255.0, 176.0, 0.0)); // Conveyor Up
+                else if (cellType < 24.5) color = hexColor(vec3(255.0, 176.0, 0.0)); // Conveyor Down
+                // Crafted items
+                else if (cellType < 25.5) color = hexColor(vec3(184.0, 184.0, 184.0)); // Iron Plate - light gray
+                else if (cellType < 26.5) color = hexColor(vec3(204.0, 170.0, 0.0)); // Gear - gold
+                else if (cellType < 27.5) color = hexColor(vec3(0.0, 255.0, 0.0)); // Circuit - green
+                else if (cellType < 28.5) color = hexColor(vec3(255.0, 102.0, 0.0)); // Wire - orange
+                else if (cellType < 29.5) color = hexColor(vec3(192.0, 192.0, 192.0)); // Steel - silver
                 
                 return color;
             }
@@ -275,7 +286,13 @@ class WebGLRenderer {
                         'steam': 8, 'smoke': 9, 'coal': 10, 'iron_ore': 11,
                         'ice': 12, 'glass': 13, 'acid': 14, 'crystal': 15,
                         'grass': 16, 'fire': 17, 'seed': 18, 'pump': 19,
-                        'support': 20
+                        'support': 20,
+                        // Conveyor belts
+                        'conveyor_right': 21, 'conveyor_left': 22,
+                        'conveyor_up': 23, 'conveyor_down': 24,
+                        // Crafted items
+                        'iron_plate': 25, 'gear': 26, 'circuit': 27,
+                        'wire': 28, 'steel': 29
                     };
                     
                     data[idx] = typeMap[cell.type] || 0; // R: cell type

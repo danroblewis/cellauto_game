@@ -39,6 +39,9 @@ class Game {
         this.levelGenerator = new LevelGenerator(this.world);
         this.currentLevelTheme = null;
         
+        // Crafting system
+        this.craftingSystem = new CraftingSystem(this.world);
+        
         // Set world in WebGL renderer if using WebGL
         if (this.useWebGL) {
             this.renderer.world = this.world;
@@ -304,7 +307,11 @@ class Game {
             CellType.STONE, CellType.DIRT, CellType.SAND, CellType.WOOD,
             CellType.WATER, CellType.LAVA, CellType.ICE, CellType.GLASS,
             CellType.COAL, CellType.IRON_ORE, CellType.CRYSTAL, CellType.PUMP,
-            CellType.SUPPORT
+            CellType.SUPPORT,
+            CellType.CONVEYOR_RIGHT, CellType.CONVEYOR_LEFT, 
+            CellType.CONVEYOR_UP, CellType.CONVEYOR_DOWN,
+            CellType.IRON_PLATE, CellType.GEAR, CellType.CIRCUIT,
+            CellType.WIRE, CellType.STEEL
         ];
 
         materials.forEach(material => {
@@ -479,6 +486,9 @@ class Game {
 
         // Update world physics
         this.world.update();
+        
+        // Update crafting system (check for patterns)
+        this.craftingSystem.update(this.camera);
 
         // Update camera
         this.updateCamera();

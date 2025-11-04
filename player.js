@@ -34,7 +34,11 @@ class Player {
             CellType.WATER, CellType.LAVA, CellType.OIL, CellType.STEAM,
             CellType.SMOKE, CellType.COAL, CellType.IRON_ORE, CellType.ICE,
             CellType.GLASS, CellType.ACID, CellType.CRYSTAL, CellType.GRASS,
-            CellType.FIRE, CellType.SEED, CellType.PUMP, CellType.SUPPORT
+            CellType.FIRE, CellType.SEED, CellType.PUMP, CellType.SUPPORT,
+            CellType.CONVEYOR_RIGHT, CellType.CONVEYOR_LEFT,
+            CellType.CONVEYOR_UP, CellType.CONVEYOR_DOWN,
+            CellType.IRON_PLATE, CellType.GEAR, CellType.CIRCUIT,
+            CellType.WIRE, CellType.STEEL
         ];
         
         allMaterials.forEach(material => {

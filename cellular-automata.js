@@ -21,6 +21,19 @@ class CellType {
     static SEED = 'seed';
     static PUMP = 'pump';
     static SUPPORT = 'support';
+    
+    // Conveyor belts (directional)
+    static CONVEYOR_RIGHT = 'conveyor_right';
+    static CONVEYOR_LEFT = 'conveyor_left';
+    static CONVEYOR_UP = 'conveyor_up';
+    static CONVEYOR_DOWN = 'conveyor_down';
+    
+    // Crafted items
+    static IRON_PLATE = 'iron_plate';
+    static GEAR = 'gear';
+    static CIRCUIT = 'circuit';
+    static WIRE = 'wire';
+    static STEEL = 'steel';
 }
 
 class Cell {
@@ -36,20 +49,36 @@ class Cell {
         this.stable = false; // Structural stability (for stone)
         this.hasSupport = false; // Support block overlay
         this.supportStable = false; // Stability for support blocks
+        this.conveyorCooldown = 0; // Cooldown for conveyor movement
     }
 
     isStoneLike() {
-        // Materials that need structural stability checking
+        // Materials that need structural stability checking (won't fall if stable)
         return this.type === CellType.STONE || this.type === CellType.IRON_ORE || 
                this.type === CellType.CRYSTAL || this.type === CellType.GLASS ||
-               this.type === CellType.PUMP;
+               this.type === CellType.PUMP ||
+               this.isConveyor() || this.isCraftedItem();
     }
 
     isSolid() {
         return [CellType.STONE, CellType.DIRT, CellType.SAND, CellType.WOOD,
                 CellType.COAL, CellType.IRON_ORE, CellType.ICE, CellType.GLASS,
-                CellType.CRYSTAL, CellType.GRASS, CellType.PUMP].includes(this.type);
+                CellType.CRYSTAL, CellType.GRASS, CellType.PUMP,
+                CellType.CONVEYOR_RIGHT, CellType.CONVEYOR_LEFT, 
+                CellType.CONVEYOR_UP, CellType.CONVEYOR_DOWN,
+                CellType.IRON_PLATE, CellType.GEAR, CellType.CIRCUIT,
+                CellType.WIRE, CellType.STEEL].includes(this.type);
         // Note: SUPPORT is intentionally not solid - it doesn't block movement
+    }
+    
+    isConveyor() {
+        return [CellType.CONVEYOR_RIGHT, CellType.CONVEYOR_LEFT,
+                CellType.CONVEYOR_UP, CellType.CONVEYOR_DOWN].includes(this.type);
+    }
+    
+    isCraftedItem() {
+        return [CellType.IRON_PLATE, CellType.GEAR, CellType.CIRCUIT,
+                CellType.WIRE, CellType.STEEL].includes(this.type);
     }
     
     providesStability() {
@@ -119,7 +148,20 @@ class Cell {
             [CellType.FIRE]: '#FF4400',
             [CellType.SEED]: '#654321',
             [CellType.PUMP]: '#00FFFF',
-            [CellType.SUPPORT]: '#FFFF00'
+            [CellType.SUPPORT]: '#FFFF00',
+            
+            // Conveyor belts
+            [CellType.CONVEYOR_RIGHT]: '#FFB000',
+            [CellType.CONVEYOR_LEFT]: '#FFB000',
+            [CellType.CONVEYOR_UP]: '#FFB000',
+            [CellType.CONVEYOR_DOWN]: '#FFB000',
+            
+            // Crafted items
+            [CellType.IRON_PLATE]: '#B8B8B8',
+            [CellType.GEAR]: '#CCAA00',
+            [CellType.CIRCUIT]: '#00FF00',
+            [CellType.WIRE]: '#FF6600',
+            [CellType.STEEL]: '#C0C0C0'
         };
         return colors[this.type] || '#FFFFFF';
     }
@@ -311,9 +353,28 @@ class CellularAutomata {
                 }
 
                 let changed = false;
+                
+                // Conveyor belt logic - check if cell is ON a conveyor
+                const cellBelow = this.getCell(x, y + 1);
+                if (cellBelow && cellBelow.isConveyor && cellBelow.isConveyor() && 
+                    cell.isConveyor && !cell.isConveyor()) {
+                    // Check cooldown before moving
+                    if (cell.conveyorCooldown <= 0) {
+                        // Item on a conveyor belt - move it
+                        changed = this.applyConveyorMovement(cell, x, y, cellBelow.type) || changed;
+                        if (changed) {
+                            // Set cooldown for next movement (adjust this value to change speed)
+                            cell.conveyorCooldown = 3; // Wait 3 frames between moves
+                        }
+                    } else {
+                        // Decrease cooldown
+                        cell.conveyorCooldown--;
+                    }
+                }
 
                 // Gravity for solids, liquids, and stone-like materials (includes support blocks)
-                if (cell.isSolid() || cell.isLiquid() || cell.isStoneLike()) {
+                // Skip gravity if just moved by conveyor
+                if (!changed && (cell.isSolid() || cell.isLiquid() || cell.isStoneLike())) {
                     changed = this.applyGravity(cell, x, y) || changed;
                 }
 
@@ -505,6 +566,41 @@ class CellularAutomata {
                 }
             }
         }
+    }
+
+    applyConveyorMovement(cell, x, y, conveyorType) {
+        // Move cell in the direction of the conveyor belt
+        let targetX = x;
+        let targetY = y;
+        
+        switch (conveyorType) {
+            case CellType.CONVEYOR_RIGHT:
+                targetX = x + 1;
+                break;
+            case CellType.CONVEYOR_LEFT:
+                targetX = x - 1;
+                break;
+            case CellType.CONVEYOR_UP:
+                targetY = y - 1;
+                break;
+            case CellType.CONVEYOR_DOWN:
+                targetY = y + 1;
+                break;
+        }
+        
+        // Check if target is valid and empty (or air/gas)
+        const target = this.getCell(targetX, targetY);
+        if (!target) return false;
+        
+        // Can move into air or gas (with safety check for method existence)
+        if (target.type === CellType.AIR || (target.isGas && target.isGas())) {
+            if (this.swap(x, y, targetX, targetY)) {
+                this.markActive(targetX, targetY);
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     applyGravity(cell, x, y) {
