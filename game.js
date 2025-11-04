@@ -819,6 +819,9 @@ class Game {
         // Clear saved state
         localStorage.removeItem('cellauto_game_state');
         
+        // Clear the active cells set to prevent invalid coordinates
+        this.world.activeCells.clear();
+        
         // Clear the current world
         for (let x = 0; x < this.world.width; x++) {
             for (let y = 0; y < this.world.height; y++) {
@@ -877,7 +880,7 @@ class Game {
             
             newRandom.addEventListener('click', () => {
                 console.log('Random button clicked');
-                const themes = ['factory', 'waterTreatment', 'mine', 'laboratory', 'underground', 'geothermal'];
+                const themes = ['standard', 'factory', 'waterTreatment', 'mine', 'laboratory', 'underground', 'geothermal'];
                 const randomTheme = themes[Math.floor(Math.random() * themes.length)];
                 console.log(`Random theme selected: ${randomTheme}`);
                 this.loadLevel(randomTheme);
@@ -933,6 +936,11 @@ class Game {
         
         // Unpause game
         this.paused = false;
+        
+        // Save the game state after loading level
+        setTimeout(() => {
+            this.saveGameState();
+        }, 500);
         
         console.log(`✅ Level loaded: ${levelInfo.title}`);
     }

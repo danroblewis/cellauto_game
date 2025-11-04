@@ -10,6 +10,7 @@ class LevelGenerator {
     // Generate a themed level
     generateLevel(theme = 'factory', difficulty = 'medium') {
         const themes = {
+            'standard': this.generateStandard.bind(this),
             'factory': this.generateFactory.bind(this),
             'waterTreatment': this.generateWaterTreatment.bind(this),
             'mine': this.generateMine.bind(this),
@@ -18,8 +19,39 @@ class LevelGenerator {
             'geothermal': this.generateGeothermalPlant.bind(this)
         };
 
-        const generator = themes[theme] || themes['factory'];
+        const generator = themes[theme] || themes['standard'];
         return generator(difficulty);
+    }
+
+    // THEME 0: Standard Random World (original generation)
+    generateStandard(difficulty) {
+        console.log('🌍 Generating Standard World...');
+        
+        // Use the world's built-in generation
+        this.world.generateWorld();
+        
+        const story = {
+            title: "Sandbox World",
+            description: "A randomly generated world for exploration"
+        };
+        
+        // Find a good spawn point (on ground)
+        let spawnX = Math.floor(this.world.width / 2);
+        let spawnY = 10;
+        
+        // Find actual ground level at spawn
+        for (let y = 0; y < this.world.height; y++) {
+            const cell = this.world.getCell(spawnX, y);
+            if (cell && cell.isSolid()) {
+                spawnY = y - 2; // Spawn above ground
+                break;
+            }
+        }
+        
+        story.spawnX = spawnX;
+        story.spawnY = spawnY;
+        
+        return story;
     }
 
     // THEME 1: Industrial Factory
@@ -313,6 +345,9 @@ class LevelGenerator {
 
     // Helper methods for building basic structures
     clearWorld() {
+        // Clear active cells first to prevent invalid coordinates
+        this.world.activeCells.clear();
+        
         for (let y = 0; y < this.world.height; y++) {
             for (let x = 0; x < this.world.width; x++) {
                 this.world.setCell(x, y, CellType.AIR);
