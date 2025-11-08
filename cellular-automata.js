@@ -34,6 +34,9 @@ class CellType {
     static CIRCUIT = 'circuit';
     static WIRE = 'wire';
     static STEEL = 'steel';
+    
+    // Special
+    static ANNIHILATOR = 'annihilator';
 }
 
 class Cell {
@@ -68,7 +71,7 @@ class Cell {
                 CellType.CONVEYOR_UP, CellType.CONVEYOR_DOWN,
                 CellType.IRON_PLATE, CellType.GEAR, CellType.CIRCUIT,
                 CellType.WIRE, CellType.STEEL].includes(this.type);
-        // Note: SUPPORT is intentionally not solid - it doesn't block movement
+        // Note: SUPPORT and ANNIHILATOR are intentionally not solid - they don't block movement
     }
     
     isConveyor() {
@@ -83,7 +86,11 @@ class Cell {
     
     providesStability() {
         // Blocks that provide structural stability support
+        // Conveyor belts don't provide stability (items should fall off edges)
         // Support is now a property, not a type
+        if (this.isConveyor && this.isConveyor()) {
+            return false;
+        }
         return this.isSolid() || this.hasSupport;
     }
 
@@ -161,7 +168,10 @@ class Cell {
             [CellType.GEAR]: '#CCAA00',
             [CellType.CIRCUIT]: '#00FF00',
             [CellType.WIRE]: '#FF6600',
-            [CellType.STEEL]: '#C0C0C0'
+            [CellType.STEEL]: '#C0C0C0',
+            
+            // Special
+            [CellType.ANNIHILATOR]: '#FF0000' // Red - immutable block
         };
         return colors[this.type] || '#FFFFFF';
     }
@@ -270,6 +280,26 @@ class CellularAutomata {
         
         const cell1 = this.grid[y1][x1];
         const cell2 = this.grid[y2][x2];
+        
+        // Annihilator cells destroy anything trying to swap with them
+        if (cell1.type === CellType.ANNIHILATOR && cell2.type !== CellType.ANNIHILATOR) {
+            // Cell2 tries to enter Annihilator - destroy it and keep Annihilator
+            this.grid[y2][x2] = new Cell(CellType.AIR, x2, y2);
+            this.grid[y2][x2].hasSupport = cell2.hasSupport; // Preserve support
+            this.grid[y2][x2].supportStable = cell2.supportStable;
+            return true;
+        }
+        if (cell2.type === CellType.ANNIHILATOR && cell1.type !== CellType.ANNIHILATOR) {
+            // Cell1 tries to enter Annihilator - destroy it and keep Annihilator
+            this.grid[y1][x1] = new Cell(CellType.AIR, x1, y1);
+            this.grid[y1][x1].hasSupport = cell1.hasSupport; // Preserve support
+            this.grid[y1][x1].supportStable = cell1.supportStable;
+            return true;
+        }
+        if (cell1.type === CellType.ANNIHILATOR && cell2.type === CellType.ANNIHILATOR) {
+            // Both are Annihilators - no swap needed
+            return false;
+        }
         
         // Preserve support properties at their original locations
         const support1 = cell1.hasSupport;
@@ -465,6 +495,9 @@ class CellularAutomata {
             for (let x = 0; x < this.width; x++) {
                 const cell = this.grid[y][x];
                 if (!cell.isStoneLike()) continue;
+                
+                // Skip conveyor belts - they don't participate in stability
+                if (cell.isConveyor && cell.isConveyor()) continue;
 
                 // Check if on ground (bottom of world) or on solid surface
                 if (y === this.height - 1) {
@@ -472,7 +505,11 @@ class CellularAutomata {
                 } else {
                     const below = this.grid[y + 1][x];
                     // Stable if standing on solid non-stone material (dirt, etc.), stable stone, or stable support
-                    if (below.isSolid() && !below.isStoneLike()) {
+                    // But not on conveyor belts
+                    if (below.isConveyor && below.isConveyor()) {
+                        // Don't get stability from conveyor belts
+                        cell.stable = false;
+                    } else if (below.isSolid() && !below.isStoneLike()) {
                         cell.stable = true;
                     } else if (below.isStoneLike() && below.stable) {
                         cell.stable = true;
@@ -518,8 +555,9 @@ class CellularAutomata {
                 for (let x = 0; x < this.width; x++) {
                     const cell = this.grid[y][x];
                     
-                    // Propagate stone stability
-                    if (cell.isStoneLike() && !cell.stable) {
+                    // Propagate stone stability (but not for conveyor belts)
+                    if (cell.isStoneLike() && !cell.stable && 
+                        !(cell.isConveyor && cell.isConveyor())) {
                         // Check if any neighbor stone or support is stable
                         const neighbors = [
                             { x: x - 1, y: y }, { x: x + 1, y: y },
@@ -529,6 +567,10 @@ class CellularAutomata {
                         for (const n of neighbors) {
                             if (n.x >= 0 && n.x < this.width && n.y >= 0 && n.y < this.height) {
                                 const neighbor = this.grid[n.y][n.x];
+                                // Skip conveyor belts - they don't provide stability
+                                if (neighbor.isConveyor && neighbor.isConveyor()) {
+                                    continue;
+                                }
                                 if (neighbor.isStoneLike() && neighbor.stable) {
                                     cell.stable = true;
                                     changed = true;
@@ -592,8 +634,10 @@ class CellularAutomata {
         const target = this.getCell(targetX, targetY);
         if (!target) return false;
         
-        // Can move into air or gas (with safety check for method existence)
-        if (target.type === CellType.AIR || (target.isGas && target.isGas())) {
+        // Can move into air, gas, or Annihilators (with safety check for method existence)
+        if (target.type === CellType.AIR || 
+            target.type === CellType.ANNIHILATOR ||
+            (target.isGas && target.isGas())) {
             if (this.swap(x, y, targetX, targetY)) {
                 this.markActive(targetX, targetY);
                 return true;
@@ -606,6 +650,13 @@ class CellularAutomata {
     applyGravity(cell, x, y) {
         const below = this.getCell(x, y + 1);
         if (!below) return false;
+
+        // Conveyor belts, crafted items, and Annihilators never fall (they're machinery/items/special)
+        if ((cell.isConveyor && cell.isConveyor()) || 
+            (cell.isCraftedItem && cell.isCraftedItem()) ||
+            cell.type === CellType.ANNIHILATOR) {
+            return false;
+        }
 
         // Stone-like materials check stability before falling
         if (cell.isStoneLike()) {
@@ -623,8 +674,9 @@ class CellularAutomata {
             }
         }
 
-        // Can fall through air or lighter materials (but not through support for stone-like blocks)
+        // Can fall through air, Annihilators, or lighter materials (but not through support for stone-like blocks)
         if (below.type === CellType.AIR ||
+            below.type === CellType.ANNIHILATOR ||
             (below.isLiquid() && cell.getDensity() > below.getDensity()) ||
             (below.isGas() && cell.getDensity() > below.getDensity())) {
             // Stone-like materials shouldn't fall through support
@@ -652,8 +704,8 @@ class CellularAutomata {
                 const diag = this.getCell(x + dir.x, y + dir.y);
                 const belowDiag = this.getCell(x + dir.x, y + dir.y + 1);
                 if (diag && belowDiag && 
-                    (diag.type === CellType.AIR || diag.isLiquid()) &&
-                    (belowDiag.type === CellType.AIR || belowDiag.isLiquid())) {
+                    (diag.type === CellType.AIR || diag.type === CellType.ANNIHILATOR || diag.isLiquid()) &&
+                    (belowDiag.type === CellType.AIR || belowDiag.type === CellType.ANNIHILATOR || belowDiag.isLiquid())) {
                     if (this.swap(x, y, x + dir.x, y + dir.y)) {
                         this.markActive(x + dir.x, y + dir.y);
                         return true;
@@ -676,7 +728,7 @@ class CellularAutomata {
         // If there's upward pump force, try to move up with higher priority
         if (pumpForce > 0) {
             const above = this.getCell(x, y - 1);
-            if (above && above.type === CellType.AIR) {
+            if (above && (above.type === CellType.AIR || above.type === CellType.ANNIHILATOR)) {
                 // Stronger pump force = higher probability of moving up
                 // With 2 pump blocks nearby (one on each side), should be very likely to rise
                 const moveUpProbability = Math.min(0.95, 0.3 + pumpForce * 0.25);
@@ -698,8 +750,9 @@ class CellularAutomata {
             const target = this.getCell(x + dir.x, y + dir.y);
             if (!target) continue;
 
-            // Flow to empty space or lighter fluids
+            // Flow to empty space, Annihilators, or lighter fluids
             if (target.type === CellType.AIR ||
+                target.type === CellType.ANNIHILATOR ||
                 (target.isLiquid() && cell.getDensity() > target.getDensity())) {
                 if (Math.random() > 0.5) {
                     this.swap(x, y, x + dir.x, y + dir.y);

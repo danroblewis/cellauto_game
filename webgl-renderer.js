@@ -138,6 +138,8 @@ class WebGLRenderer {
                 else if (cellType < 27.5) color = hexColor(vec3(0.0, 255.0, 0.0)); // Circuit - green
                 else if (cellType < 28.5) color = hexColor(vec3(255.0, 102.0, 0.0)); // Wire - orange
                 else if (cellType < 29.5) color = hexColor(vec3(192.0, 192.0, 192.0)); // Steel - silver
+                // Special
+                else if (cellType < 30.5) color = hexColor(vec3(255.0, 0.0, 0.0)); // Annihilator - red
                 
                 return color;
             }
@@ -292,7 +294,9 @@ class WebGLRenderer {
                         'conveyor_up': 23, 'conveyor_down': 24,
                         // Crafted items
                         'iron_plate': 25, 'gear': 26, 'circuit': 27,
-                        'wire': 28, 'steel': 29
+                        'wire': 28, 'steel': 29,
+                        // Special
+                        'annihilator': 30
                     };
                     
                     data[idx] = typeMap[cell.type] || 0; // R: cell type

@@ -38,7 +38,7 @@ class Player {
             CellType.CONVEYOR_RIGHT, CellType.CONVEYOR_LEFT,
             CellType.CONVEYOR_UP, CellType.CONVEYOR_DOWN,
             CellType.IRON_PLATE, CellType.GEAR, CellType.CIRCUIT,
-            CellType.WIRE, CellType.STEEL
+            CellType.WIRE, CellType.STEEL, CellType.ANNIHILATOR
         ];
         
         allMaterials.forEach(material => {
